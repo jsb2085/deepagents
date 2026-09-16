@@ -8,12 +8,13 @@ Regenerate this file with `make commands-catalog` after changing command names,
 aliases, descriptions, visibility, or hidden-command metadata.
 
 
-## Public (37)
+## Public (38)
 
 | Command | Aliases | Description |
 | --- | --- | --- |
 | `/agents` |  | Browse and switch between available agents |
 | `/auth` | `/connect` | Connect and manage provider and service credentials |
+| `/auth-mode` |  | Toggle model auth between API keys and Kerberos JWT |
 | `/auto` |  | Switch to Auto approval mode |
 | `/auto-update` |  | Turn automatic updates on or off |
 | `/changelog` |  | Open the changelog in a browser |

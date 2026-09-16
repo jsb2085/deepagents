@@ -1115,6 +1115,32 @@ _STATIC_OPTIONS: tuple[ConfigOption, ...] = (
         kind=OptionKind.STR,
         toml_keys=("models", "recent"),
     ),
+    ConfigOption(
+        key="models.auth_mode",
+        group="Models",
+        summary=(
+            "Model auth mode ('api' for provider keys, 'tijwt'/'kerberos' for "
+            "a Kerberos-ticket JWT via the TI token fetcher)."
+        ),
+        kind=OptionKind.STR,
+        default="api",
+        env_var=_env_vars.AUTH_MODE,
+        fallback_env_vars=("TI_AUTH_MODE",),
+        toml_keys=("models", "auth_mode"),
+        cli_flag="--auth-mode",
+    ),
+    ConfigOption(
+        key="models.ti_get_token_cmd",
+        group="Models",
+        summary=(
+            "Token fetcher for 'tijwt' auth mode (shell-split command string; "
+            "default 'node get-token.js')."
+        ),
+        kind=OptionKind.STR,
+        env_var=_env_vars.TI_GET_TOKEN_CMD,
+        fallback_env_vars=("TI_GET_TOKEN_CMD",),
+        toml_keys=("models", "ti_get_token_cmd"),
+    ),
     # --- Tracing -------------------------------------------------------
     ConfigOption(
         key="tracing.langsmith_project",

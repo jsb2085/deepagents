@@ -4362,12 +4362,68 @@ def _get_provider_kwargs(
                         client_kwargs["headers"] = headers
                         result["client_kwargs"] = client_kwargs
 
+    result = _apply_tijwt_auth_kwargs(provider, result)
+
     retry_section = _read_config_toml_retries()
     retry_kwargs = _resolve_retry_kwargs(retry_section, provider)
     for key, value in retry_kwargs.items():
         result.setdefault(key, value)
 
     return result
+
+
+def _apply_tijwt_auth_kwargs(provider: str, kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Override model kwargs with a TI JWT when `tijwt` auth mode is active.
+
+    In `tijwt` mode the Kerberos-ticket JWT replaces any API key: standard
+    providers receive it as `api_key`, while `ollama` (which has no `api_key`
+    kwarg) receives it as an `Authorization` header. The Codex provider keeps
+    its OAuth flow and is never overridden.
+
+    Args:
+        provider: Provider name (may be empty for auto-detection).
+        kwargs: Layered model constructor parameters.
+
+    Returns:
+        Updated kwargs, or the original mapping when `api` mode is active.
+    """
+    from deepagents_code.model_config import CODEX_PROVIDER, ModelConfigError
+
+    if provider == CODEX_PROVIDER:
+        return kwargs
+    try:
+        from deepagents_code import tijwt as _tijwt
+    except ImportError:
+        return kwargs
+    try:
+        if _tijwt.resolve_auth_mode() != _tijwt.TIJWT_AUTH_MODE:
+            return kwargs
+        token = _tijwt.get_tijwt_token()
+    except Exception as exc:  # noqa: BLE001
+        from deepagents_code.tijwt import TIJWTError
+
+        if isinstance(exc, TIJWTError):
+            msg = f"TI JWT auth failed: {exc}"
+            raise ModelConfigError(msg) from exc
+        logger.debug("TI JWT auth check failed; using API-key auth", exc_info=True)
+        return kwargs
+    updated = dict(kwargs)
+    if provider == "ollama":
+        client_kwargs = updated.get("client_kwargs")
+        if not isinstance(client_kwargs, dict):
+            client_kwargs = {}
+        headers = client_kwargs.get("headers")
+        if not isinstance(headers, dict):
+            headers = {}
+        else:
+            headers = dict(headers)
+        headers["Authorization"] = f"Bearer {token}"
+        client_kwargs = {**client_kwargs, "headers": headers}
+        updated["client_kwargs"] = client_kwargs
+    else:
+        updated["api_key"] = token
+    logger.debug("Using TI JWT (Kerberos) auth for provider '%s'", provider or "<auto>")
+    return updated
 
 
 def _compose_openai_reasoning_effort(
@@ -4750,13 +4806,27 @@ def create_model(
     # Stored API keys (added via `/auth`) take effect by being copied onto
     # the env var name LangChain reads. Apply before the credential check so
     # `has_provider_credentials` and the downstream SDK see the same value.
+    # Skipped in `tijwt` mode: the Kerberos JWT is injected as an explicit
+    # kwarg later, so a stale stored key must not be bridged onto the env.
     if provider:
-        # Flag a key/endpoint resolved from different env tiers *before*
-        # `apply_stored_credentials` bridges stored values onto plain env vars,
-        # so the check sees the user's raw env intent rather than post-bridge
-        # state. Diagnostic only -- never alters resolution.
-        warn_on_split_credential_source(provider)
-        apply_stored_credentials(provider)
+        from deepagents_code import tijwt as _tijwt_check
+
+        _tijwt_active = False
+        try:
+            _tijwt_active = (
+                _tijwt_check.resolve_auth_mode() == _tijwt_check.TIJWT_AUTH_MODE
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug(
+                "TI JWT auth-mode check failed; using API-key auth", exc_info=True
+            )
+        if not _tijwt_active:
+            # Flag a key/endpoint resolved from different env tiers *before*
+            # `apply_stored_credentials` bridges stored values onto plain env vars,
+            # so the check sees the user's raw env intent rather than post-bridge
+            # state. Diagnostic only -- never alters resolution.
+            warn_on_split_credential_source(provider)
+            apply_stored_credentials(provider)
 
     from deepagents_code.model_config import CODEX_PROVIDER
 

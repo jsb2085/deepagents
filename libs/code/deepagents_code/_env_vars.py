@@ -30,6 +30,16 @@ import os
 # Keep alphabetically sorted by constant name.
 # ---------------------------------------------------------------------------
 
+AUTH_MODE = "DEEPAGENTS_CODE_AUTH_MODE"
+"""Model auth mode (`api` or `tijwt`/`kerberos`).
+
+`api` (default) uses provider API keys from env / `/auth`. `tijwt` exchanges
+the Kerberos ticket for a short-lived JWT via the `TI_GET_TOKEN_CMD` fetcher
+and uses it as the provider bearer token. Also settable via
+`[models].auth_mode` in config.toml and the `--auth-mode` CLI flag (which wins).
+`TI_AUTH_MODE` is honored as a fallback env name.
+"""
+
 AUTO_UPDATE = "DEEPAGENTS_CODE_AUTO_UPDATE"
 """Toggle automatic app updates. Enabled by default; set to a falsy value
 ('0', 'false', 'no', 'off', or empty) to opt out."""
@@ -408,6 +418,14 @@ the warning when this coexistence is expected. Parsed by `is_env_truthy`.
 
 THEME = "DEEPAGENTS_CODE_THEME"
 """Force the CLI to launch with this theme name when set."""
+
+TI_GET_TOKEN_CMD = "DEEPAGENTS_CODE_TI_GET_TOKEN_CMD"
+"""Token fetcher for `tijwt` auth mode, as a shell-split command string.
+
+Defaults to `node get-token.js` (Kerberos ticket -> JWT on stdout). Also
+settable via `[models].ti_get_token_cmd` in config.toml. `TI_GET_TOKEN_CMD`
+is honored as a fallback env name.
+"""
 
 USER_ID = "DEEPAGENTS_CODE_USER_ID"
 """Attach a user identifier to LangSmith trace metadata."""

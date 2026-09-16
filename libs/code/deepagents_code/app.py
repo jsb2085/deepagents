@@ -6760,6 +6760,86 @@ class DeepAgentsApp(App):
                 markup=False,
             )
 
+    async def _handle_auth_mode_command(self, command: str) -> None:
+        """Handle `/auth-mode` — toggle model auth between API keys and TI JWT.
+
+        Usage: `/auth-mode [api|tijwt|kerberos|status]`. Bare `/auth-mode`
+        toggles to the other mode. The choice is applied to this session
+        immediately (both client and server env) and persisted to
+        `[models].auth_mode` so restarts keep it. Switching to `tijwt`
+        verifies the Kerberos fetcher up front so a broken `get-token.js`
+        surfaces now instead of on the next model call.
+
+        Args:
+            command: Full slash-command text including any argument.
+        """
+        import os
+
+        from deepagents_code import _env_vars as _auth_env
+
+        try:
+            from deepagents_code import tijwt as _tijwt
+            from deepagents_code.model_config import save_auth_mode
+
+            parts = command.split(maxsplit=1)
+            arg = parts[1].strip().lower() if len(parts) > 1 else ""
+            current = await asyncio.to_thread(_tijwt.resolve_auth_mode)
+            if arg in {"", "toggle"}:
+                target = (
+                    _tijwt.API_AUTH_MODE
+                    if current == _tijwt.TIJWT_AUTH_MODE
+                    else _tijwt.TIJWT_AUTH_MODE
+                )
+            elif arg == "status":
+                await self._mount_message(UserMessage(command))
+                await self._mount_message(
+                    AppMessage(f"Model auth mode: {current} (api key vs Kerberos JWT).")
+                )
+                return
+            else:
+                target = await asyncio.to_thread(_tijwt.normalize_auth_mode, arg)
+                if target is None:
+                    raise _tijwt.TIJWTError(
+                        f"Unknown auth mode {arg!r}: use 'api', 'tijwt', or 'kerberos'."
+                    )
+            if target == _tijwt.TIJWT_AUTH_MODE:
+                _tijwt.reset_manager()
+                await asyncio.to_thread(_tijwt.get_tijwt_token)
+            os.environ[_auth_env.AUTH_MODE] = target
+            if self._server_proc is not None:
+                self._server_proc.update_env(**{f"{_auth_env.AUTH_MODE}": target})
+            persisted = await asyncio.to_thread(save_auth_mode, target)
+            await self._mount_message(UserMessage(command))
+            if target == _tijwt.TIJWT_AUTH_MODE:
+                msg = (
+                    "Model auth mode: tijwt (Kerberos-ticket JWT). "
+                    "New model calls fetch a short-lived token via get-token.js."
+                )
+            else:
+                msg = "Model auth mode: api (provider API keys)."
+            if not persisted:
+                msg += " Note: could not persist to config.toml for next launch."
+            else:
+                msg += (
+                    " Saved to [models].auth_mode;"
+                    " restart the server to rebuild models."
+                )
+            await self._mount_message(AppMessage(msg))
+            self.notify(
+                f"Auth mode: {target}.",
+                severity="information",
+                timeout=5,
+                markup=False,
+            )
+        except Exception as exc:
+            logger.warning("/auth-mode command failed", exc_info=True)
+            self.notify(
+                f"Auth-mode switch failed: {type(exc).__name__}: {exc}",
+                severity="warning",
+                timeout=6,
+                markup=False,
+            )
+
     def on_chat_scrolled(self, _event: _ChatScroll.Scrolled) -> None:
         """Hydrate history in both directions whenever the chat scrolls.
 
@@ -12912,6 +12992,8 @@ class DeepAgentsApp(App):
             await self._handle_update_command(command)
         elif cmd == "/auto-update":
             await self._handle_auto_update_toggle()
+        elif cmd == "/auth-mode" or cmd.startswith("/auth-mode "):
+            await self._handle_auth_mode_command(command)
         elif cmd == "/install" or cmd.startswith("/install "):
             await self._handle_install_command(command)
         elif cmd == "/scrollbar":

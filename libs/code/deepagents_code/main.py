@@ -1890,6 +1890,16 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--auth-mode",
+        dest="auth_mode",
+        metavar="MODE",
+        default=None,
+        help="Model auth mode: 'api' (provider API key) or 'tijwt'/'kerberos' "
+        "(Kerberos-ticket JWT via get-token.js). Overrides "
+        "DEEPAGENTS_CODE_AUTH_MODE and [models].auth_mode.",
+    )
+
+    parser.add_argument(
         "--model-params",
         metavar="JSON",
         help="Extra kwargs to pass to the model as a JSON string "
@@ -3900,6 +3910,20 @@ def cli_main() -> None:
             from deepagents_code.config import parse_shell_allow_list
 
             settings.shell_allow_list = parse_shell_allow_list(args.shell_allow_list)
+
+        # Apply --auth-mode early so both this process and the server
+        # subprocess (which inherits os.environ) resolve TI JWT auth.
+        if getattr(args, "auth_mode", None):
+            from deepagents_code import _env_vars as _auth_mode_env
+            from deepagents_code.tijwt import normalize_auth_mode
+
+            try:
+                normalized = normalize_auth_mode(args.auth_mode)
+            except Exception as exc:
+                console.print(f"[bold red]Error:[/bold red] {exc}")
+                sys.exit(2)
+            if normalized is not None:
+                os.environ[_auth_mode_env.AUTH_MODE] = normalized
 
         apply_stdin_pipe(args)
 
