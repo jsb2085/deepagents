@@ -43,6 +43,19 @@ DEFAULT_REFRESH_THRESHOLD_SECONDS = 300
 DEFAULT_FETCH_COMMAND: tuple[str, ...] = ("node", "get-token.js")
 """Default fetcher: exchanges the Kerberos ticket for a JWT on stdout."""
 
+TI_GATEWAY_DEFAULT_BASE_URL = "https://llmgateway.itg.ti.com/v1"
+"""Default LiteLLM gateway endpoint used in `tijwt` auth mode."""
+
+TI_DEFAULT_TEAM_ID = "DAP_SG_CLAUDE_CODE"
+"""Default `x-litellm-team-id` header value used in `tijwt` auth mode.
+
+Mirrors the reference `TIJWTTokenProvider` default (`LITELLM_TEAM_ID` env with
+this fallback).
+"""
+
+TI_TEAM_ID_HEADER = "x-litellm-team-id"
+"""Request header carrying the LiteLLM team ID alongside the JWT bearer token."""
+
 
 class TIJWTError(RuntimeError):
     """Raised when a TI JWT cannot be fetched or the auth mode is invalid."""
@@ -226,6 +239,84 @@ def _resolve_fetch_command() -> tuple[str, ...]:
     if not raw or not raw.strip():
         return DEFAULT_FETCH_COMMAND
     return tuple(shlex.split(raw.strip()))
+
+
+def resolve_base_url() -> str:
+    """Resolve the LiteLLM gateway endpoint used in `tijwt` auth mode.
+
+    Precedence: `DEEPAGENTS_CODE_TI_BASE_URL` (fallback `TI_BASE_URL`), then
+    `[models].ti_base_url` in `config.toml`, then the default gateway.
+
+    Returns:
+        The gateway base URL (e.g. `https://llmgateway.itg.ti.com/v1`).
+    """
+    from deepagents_code import _env_vars
+
+    for name in (_env_vars.TI_BASE_URL, "TI_BASE_URL"):
+        raw = os.environ.get(name)
+        if raw and raw.strip():
+            return raw.strip()
+    try:
+        from deepagents_code.config_manifest import load_config_toml
+
+        data = load_config_toml()
+        models = data.get("models")
+        if isinstance(models, dict):
+            configured = models.get("ti_base_url")
+            if isinstance(configured, str) and configured.strip():
+                return configured.strip()
+    except Exception:
+        logger.debug("Could not read [models].ti_base_url", exc_info=True)
+    return TI_GATEWAY_DEFAULT_BASE_URL
+
+
+def resolve_team_id() -> str:
+    """Resolve the `x-litellm-team-id` header value used in `tijwt` auth mode.
+
+    Precedence: `DEEPAGENTS_CODE_TI_TEAM_ID` (fallbacks `TI_TEAM_ID`,
+    `LITELLM_TEAM_ID` — the env name used by the reference
+    `TIJWTTokenProvider`), then `[models].ti_team_id` in `config.toml`, then
+    the default team.
+
+    Returns:
+        The LiteLLM team ID string.
+    """
+    from deepagents_code import _env_vars
+
+    for name in (_env_vars.TI_TEAM_ID, "TI_TEAM_ID", "LITELLM_TEAM_ID"):
+        raw = os.environ.get(name)
+        if raw and raw.strip():
+            return raw.strip()
+    try:
+        from deepagents_code.config_manifest import load_config_toml
+
+        data = load_config_toml()
+        models = data.get("models")
+        if isinstance(models, dict):
+            configured = models.get("ti_team_id")
+            if isinstance(configured, str) and configured.strip():
+                return configured.strip()
+    except Exception:
+        logger.debug("Could not read [models].ti_team_id", exc_info=True)
+    return TI_DEFAULT_TEAM_ID
+
+
+def team_headers() -> dict[str, str]:
+    """Return the gateway team headers for the current auth mode.
+
+    Returns:
+        `{TI_TEAM_ID_HEADER: team_id}` when `tijwt` mode is active and a team
+            ID resolves, otherwise `{}`. Never raises: resolution failures
+            fall back to an empty mapping so model construction proceeds with
+            just the bearer token.
+    """
+    try:
+        if resolve_auth_mode() != TIJWT_AUTH_MODE:
+            return {}
+        return {TI_TEAM_ID_HEADER: resolve_team_id()}
+    except Exception:
+        logger.debug("Could not resolve TI team headers", exc_info=True)
+        return {}
 
 
 def resolve_auth_mode(*, cli_value: str | None = None) -> str:

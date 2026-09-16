@@ -4373,12 +4373,23 @@ def _get_provider_kwargs(
 
 
 def _apply_tijwt_auth_kwargs(provider: str, kwargs: dict[str, Any]) -> dict[str, Any]:
-    """Override model kwargs with a TI JWT when `tijwt` auth mode is active.
+    """Override model kwargs with TI gateway auth when `tijwt` mode is active.
 
-    In `tijwt` mode the Kerberos-ticket JWT replaces any API key: standard
-    providers receive it as `api_key`, while `ollama` (which has no `api_key`
-    kwarg) receives it as an `Authorization` header. The Codex provider keeps
-    its OAuth flow and is never overridden.
+    In `tijwt` mode the Kerberos-ticket JWT replaces any API key and requests
+    route to the TI LiteLLM gateway with the team header attached:
+
+    - Standard providers receive the JWT as `api_key`, while `ollama` (which
+      has no `api_key` kwarg) receives it as an `Authorization` header.
+    - `base_url` defaults to the gateway endpoint when the user has not set an
+      explicit endpoint; `litellm` additionally gets `api_base` because older
+      `ChatLiteLLM` versions silently ignore `base_url`.
+    - The `x-litellm-team-id` header is merged into both `default_headers`
+      (`ChatOpenAI` family) and `extra_headers` (`ChatLiteLLM` family).
+      Unknown header kwargs are ignored by Pydantic-based chat models
+      (`extra="ignore"`), so setting both is safe across providers; explicit
+      user headers always win on conflict.
+
+    The Codex provider keeps its OAuth flow and is never overridden.
 
     Args:
         provider: Provider name (may be empty for auto-detection).
@@ -4399,6 +4410,8 @@ def _apply_tijwt_auth_kwargs(provider: str, kwargs: dict[str, Any]) -> dict[str,
         if _tijwt.resolve_auth_mode() != _tijwt.TIJWT_AUTH_MODE:
             return kwargs
         token = _tijwt.get_tijwt_token()
+        team_id = _tijwt.resolve_team_id()
+        gateway_url = _tijwt.resolve_base_url()
     except Exception as exc:  # noqa: BLE001
         from deepagents_code.tijwt import TIJWTError
 
@@ -4422,6 +4435,25 @@ def _apply_tijwt_auth_kwargs(provider: str, kwargs: dict[str, Any]) -> dict[str,
         updated["client_kwargs"] = client_kwargs
     else:
         updated["api_key"] = token
+    if "base_url" not in updated:
+        updated["base_url"] = gateway_url
+    if provider == "litellm" and "api_base" not in updated:
+        updated["api_base"] = updated["base_url"]
+    team_header = {_tijwt.TI_TEAM_ID_HEADER: team_id}
+    for key in ("default_headers", "extra_headers"):
+        existing = updated.get(key)
+        if existing is None:
+            updated[key] = dict(team_header)
+        elif isinstance(existing, dict):
+            updated[key] = {**team_header, **existing}
+        else:
+            logger.warning(
+                "Provider '%s' has non-mapping %s (%s);"
+                " skipping TI team-header injection",
+                provider or "<auto>",
+                key,
+                type(existing).__name__,
+            )
     logger.debug("Using TI JWT (Kerberos) auth for provider '%s'", provider or "<auto>")
     return updated
 

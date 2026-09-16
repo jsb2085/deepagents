@@ -419,12 +419,28 @@ the warning when this coexistence is expected. Parsed by `is_env_truthy`.
 THEME = "DEEPAGENTS_CODE_THEME"
 """Force the CLI to launch with this theme name when set."""
 
+TI_BASE_URL = "DEEPAGENTS_CODE_TI_BASE_URL"
+"""LiteLLM gateway endpoint used in `tijwt` auth mode.
+
+Defaults to `https://llmgateway.itg.ti.com/v1`. Also settable via
+`[models].ti_base_url` in config.toml. `TI_BASE_URL` is honored as a fallback
+env name. Only applies when no explicit provider `base_url` is configured.
+"""
+
 TI_GET_TOKEN_CMD = "DEEPAGENTS_CODE_TI_GET_TOKEN_CMD"
 """Token fetcher for `tijwt` auth mode, as a shell-split command string.
 
 Defaults to `node get-token.js` (Kerberos ticket -> JWT on stdout). Also
 settable via `[models].ti_get_token_cmd` in config.toml. `TI_GET_TOKEN_CMD`
 is honored as a fallback env name.
+"""
+
+TI_TEAM_ID = "DEEPAGENTS_CODE_TI_TEAM_ID"
+"""LiteLLM team ID sent as `x-litellm-team-id` in `tijwt` auth mode.
+
+Also settable via `[models].ti_team_id` in config.toml. `TI_TEAM_ID` and
+`LITELLM_TEAM_ID` (the env name used by the reference `TIJWTTokenProvider`)
+are honored as fallback env names.
 """
 
 USER_ID = "DEEPAGENTS_CODE_USER_ID"

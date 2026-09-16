@@ -250,3 +250,130 @@ class TestModelWiring:
         kwargs = _config._get_provider_kwargs("ollama")
         headers = kwargs["client_kwargs"]["headers"]
         assert headers["Authorization"] == "Bearer jwt-ollama"
+
+
+class TestGatewayResolution:
+    """Gateway endpoint and team-ID resolution for `tijwt` mode."""
+
+    def test_base_url_defaults_to_gateway(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("DEEPAGENTS_CODE_TI_BASE_URL", raising=False)
+        monkeypatch.delenv("TI_BASE_URL", raising=False)
+        monkeypatch.setattr(
+            "deepagents_code.config_manifest.load_config_toml", lambda: {}
+        )
+        assert tijwt.resolve_base_url() == tijwt.TI_GATEWAY_DEFAULT_BASE_URL
+
+    def test_base_url_env_wins(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TI_BASE_URL", "https://gateway.example/v1")
+        assert tijwt.resolve_base_url() == "https://gateway.example/v1"
+
+    def test_team_id_prefers_litellm_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("DEEPAGENTS_CODE_TI_TEAM_ID", raising=False)
+        monkeypatch.delenv("TI_TEAM_ID", raising=False)
+        monkeypatch.setenv("LITELLM_TEAM_ID", "MY_TEAM")
+        monkeypatch.setattr(
+            "deepagents_code.config_manifest.load_config_toml", lambda: {}
+        )
+        assert tijwt.resolve_team_id() == "MY_TEAM"
+
+    def test_team_id_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("DEEPAGENTS_CODE_TI_TEAM_ID", raising=False)
+        monkeypatch.delenv("TI_TEAM_ID", raising=False)
+        monkeypatch.delenv("LITELLM_TEAM_ID", raising=False)
+        monkeypatch.setattr(
+            "deepagents_code.config_manifest.load_config_toml", lambda: {}
+        )
+        assert tijwt.resolve_team_id() == tijwt.TI_DEFAULT_TEAM_ID
+
+    def test_team_headers_empty_in_api_mode(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("DEEPAGENTS_CODE_AUTH_MODE", "api")
+        assert tijwt.team_headers() == {}
+
+
+class TestGatewayKwargs:
+    """Gateway endpoint + team headers land in model kwargs in `tijwt` mode."""
+
+    def _kwargs(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        provider: str,
+        base_url: str | None = None,
+    ) -> dict[str, Any]:
+        monkeypatch.setenv("DEEPAGENTS_CODE_AUTH_MODE", "tijwt")
+        monkeypatch.setattr(tijwt, "get_tijwt_token", lambda: "jwt-xyz")
+        monkeypatch.delenv("DEEPAGENTS_CODE_TI_BASE_URL", raising=False)
+        monkeypatch.delenv("TI_BASE_URL", raising=False)
+        monkeypatch.delenv("DEEPAGENTS_CODE_TI_TEAM_ID", raising=False)
+        monkeypatch.delenv("TI_TEAM_ID", raising=False)
+        monkeypatch.delenv("LITELLM_TEAM_ID", raising=False)
+        monkeypatch.setattr(
+            "deepagents_code.config_manifest.load_config_toml", lambda: {}
+        )
+        from deepagents_code import config as _config
+        from deepagents_code.model_config import ModelConfig
+
+        class _FakeConfig:
+            def get_kwargs(
+                self, provider: str, *, model_name: str | None = None
+            ) -> dict[str, Any]:
+                return {}
+
+            def get_base_url(self, provider: str) -> str | None:
+                return base_url
+
+            def get_api_key_env(self, provider: str) -> str | None:
+                return None
+
+        monkeypatch.setattr(ModelConfig, "load", classmethod(lambda cls: _FakeConfig()))
+        monkeypatch.setattr(_config, "_read_config_toml_retries", lambda: None)
+        return _config._get_provider_kwargs(provider)
+
+    def test_gateway_base_url_and_headers(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        kwargs = self._kwargs(monkeypatch, "openai")
+        assert kwargs["base_url"] == tijwt.TI_GATEWAY_DEFAULT_BASE_URL
+        team = {tijwt.TI_TEAM_ID_HEADER: tijwt.TI_DEFAULT_TEAM_ID}
+        assert kwargs["default_headers"] == team
+        assert kwargs["extra_headers"] == team
+
+    def test_explicit_base_url_wins(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        kwargs = self._kwargs(
+            monkeypatch, "openai", base_url="https://custom.example/v1"
+        )
+        assert kwargs["base_url"] == "https://custom.example/v1"
+
+    def test_litellm_gets_api_base(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        kwargs = self._kwargs(monkeypatch, "litellm")
+        assert kwargs["api_base"] == tijwt.TI_GATEWAY_DEFAULT_BASE_URL
+
+    def test_user_headers_preserved(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("DEEPAGENTS_CODE_AUTH_MODE", "tijwt")
+        monkeypatch.setattr(tijwt, "get_tijwt_token", lambda: "jwt-xyz")
+        monkeypatch.delenv("DEEPAGENTS_CODE_TI_TEAM_ID", raising=False)
+        monkeypatch.delenv("TI_TEAM_ID", raising=False)
+        monkeypatch.delenv("LITELLM_TEAM_ID", raising=False)
+        monkeypatch.setattr(
+            "deepagents_code.config_manifest.load_config_toml", lambda: {}
+        )
+        from deepagents_code import config as _config
+
+        out = _config._apply_tijwt_auth_kwargs(
+            "openai",
+            {
+                "base_url": "https://custom.example/v1",
+                "default_headers": {"x-other": "1"},
+            },
+        )
+        assert out["default_headers"]["x-other"] == "1"
+        assert (
+            out["default_headers"][tijwt.TI_TEAM_ID_HEADER]
+            == tijwt.TI_DEFAULT_TEAM_ID
+        )
+        assert out["base_url"] == "https://custom.example/v1"

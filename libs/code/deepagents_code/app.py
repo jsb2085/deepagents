@@ -6792,9 +6792,12 @@ class DeepAgentsApp(App):
                 )
             elif arg == "status":
                 await self._mount_message(UserMessage(command))
-                await self._mount_message(
-                    AppMessage(f"Model auth mode: {current} (api key vs Kerberos JWT).")
-                )
+                detail = f"Model auth mode: {current} (api key vs Kerberos JWT)."
+                if current == _tijwt.TIJWT_AUTH_MODE:
+                    gateway = await asyncio.to_thread(_tijwt.resolve_base_url)
+                    team = await asyncio.to_thread(_tijwt.resolve_team_id)
+                    detail += f" Gateway: {gateway}. Team: {team}."
+                await self._mount_message(AppMessage(detail))
                 return
             else:
                 target = await asyncio.to_thread(_tijwt.normalize_auth_mode, arg)

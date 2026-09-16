@@ -1141,6 +1141,29 @@ _STATIC_OPTIONS: tuple[ConfigOption, ...] = (
         fallback_env_vars=("TI_GET_TOKEN_CMD",),
         toml_keys=("models", "ti_get_token_cmd"),
     ),
+    ConfigOption(
+        key="models.ti_base_url",
+        group="Models",
+        summary=(
+            "LiteLLM gateway endpoint used in 'tijwt' auth mode "
+            "(default 'https://llmgateway.itg.ti.com/v1')."
+        ),
+        kind=OptionKind.STR,
+        env_var=_env_vars.TI_BASE_URL,
+        fallback_env_vars=("TI_BASE_URL",),
+        toml_keys=("models", "ti_base_url"),
+    ),
+    ConfigOption(
+        key="models.ti_team_id",
+        group="Models",
+        summary=(
+            "LiteLLM team ID sent as 'x-litellm-team-id' in 'tijwt' auth mode."
+        ),
+        kind=OptionKind.STR,
+        env_var=_env_vars.TI_TEAM_ID,
+        fallback_env_vars=("TI_TEAM_ID", "LITELLM_TEAM_ID"),
+        toml_keys=("models", "ti_team_id"),
+    ),
     # --- Tracing -------------------------------------------------------
     ConfigOption(
         key="tracing.langsmith_project",
