@@ -6796,7 +6796,11 @@ class DeepAgentsApp(App):
                 if current == _tijwt.TIJWT_AUTH_MODE:
                     gateway = await asyncio.to_thread(_tijwt.resolve_base_url)
                     team = await asyncio.to_thread(_tijwt.resolve_team_id)
-                    detail += f" Gateway: {gateway}. Team: {team}."
+                    verify = await asyncio.to_thread(_tijwt.resolve_verify_ssl)
+                    detail += (
+                        f" Gateway: {gateway}. Team: {team}."
+                        f" TLS verify: {'on' if verify else 'off'}."
+                    )
                 await self._mount_message(AppMessage(detail))
                 return
             else:

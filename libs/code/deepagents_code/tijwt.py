@@ -319,6 +319,50 @@ def team_headers() -> dict[str, str]:
         return {}
 
 
+def resolve_verify_ssl() -> bool:
+    """Resolve whether the TI gateway connection verifies TLS certificates.
+
+    Precedence: `DEEPAGENTS_CODE_TI_VERIFY_SSL` (fallback `TI_VERIFY_SSL`),
+    then `[models].ti_verify_ssl` in `config.toml`, then `True` (verify on).
+    An unrecognized env value or non-bool TOML value is logged and falls
+    through to the next layer — a bad value must never silently disable
+    verification.
+
+    Returns:
+        `True` (default) to verify TLS, `False` to skip verification.
+    """
+    from deepagents_code import _env_vars
+    from deepagents_code._env_vars import classify_env_bool
+
+    for name in (_env_vars.TI_VERIFY_SSL, "TI_VERIFY_SSL"):
+        raw = os.environ.get(name)
+        if raw is None or not raw.strip():
+            continue
+        classified = classify_env_bool(raw)
+        if classified is None:
+            logger.warning("Ignoring %s=%r (expected bool)", name, raw)
+            continue
+        return classified
+    try:
+        from deepagents_code.config_manifest import load_config_toml
+
+        data = load_config_toml()
+        models = data.get("models")
+        if isinstance(models, dict):
+            configured = models.get("ti_verify_ssl")
+            if isinstance(configured, bool):
+                return configured
+            if configured is not None:
+                logger.warning(
+                    "Ignoring [models].ti_verify_ssl=%r in config.toml"
+                    " (expected bool)",
+                    configured,
+                )
+    except Exception:
+        logger.debug("Could not read [models].ti_verify_ssl", exc_info=True)
+    return True
+
+
 def resolve_auth_mode(*, cli_value: str | None = None) -> str:
     """Resolve the effective model auth mode.
 

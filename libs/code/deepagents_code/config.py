@@ -4454,8 +4454,47 @@ def _apply_tijwt_auth_kwargs(provider: str, kwargs: dict[str, Any]) -> dict[str,
                 key,
                 type(existing).__name__,
             )
+    if not _tijwt.resolve_verify_ssl():
+        _apply_tijwt_insecure_clients(provider, updated)
     logger.debug("Using TI JWT (Kerberos) auth for provider '%s'", provider or "<auto>")
     return updated
+
+
+def _apply_tijwt_insecure_clients(provider: str, kwargs: dict[str, Any]) -> None:
+    """Disable TLS verification for TI gateway requests (mutates `kwargs`).
+
+    Builds `httpx` sync/async clients with `verify=False` and sets them as
+    `http_client` / `http_async_client` — the override knobs `ChatOpenAI` and
+    other OpenAI-compatible integrations read. Explicit user-supplied clients
+    always win. Unknown client kwargs are ignored by Pydantic-based chat
+    models (`extra="ignore"`), so this is safe across providers. Skipped for
+    `ollama`, which threads HTTP options through `client_kwargs` instead.
+
+    Args:
+        provider: Provider name (may be empty for auto-detection).
+        kwargs: Model constructor parameters to update in place.
+    """
+    if provider == "ollama":
+        logger.debug("Skipping TLS-verification opt-out for provider 'ollama'")
+        return
+    try:
+        import httpx
+    except ImportError:
+        logger.warning(
+            "Cannot disable TLS verification for the TI gateway:"
+            " httpx is not installed"
+        )
+        return
+    # Always warn (not debug): skipping verification weakens connection
+    # security, so the opt-out must leave a visible breadcrumb.
+    logger.warning(
+        "TLS verification disabled for TI gateway requests"
+        " (ti_verify_ssl=false). Only use this behind a trusted proxy."
+    )
+    if kwargs.get("http_client") is None:
+        kwargs["http_client"] = httpx.Client(verify=False)
+    if kwargs.get("http_async_client") is None:
+        kwargs["http_async_client"] = httpx.AsyncClient(verify=False)
 
 
 def _compose_openai_reasoning_effort(

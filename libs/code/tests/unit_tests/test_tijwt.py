@@ -377,3 +377,93 @@ class TestGatewayKwargs:
             == tijwt.TI_DEFAULT_TEAM_ID
         )
         assert out["base_url"] == "https://custom.example/v1"
+
+
+class TestVerifySsl:
+    """TLS-verification opt-out for the TI gateway (default: verify on)."""
+
+    def _clear_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("DEEPAGENTS_CODE_TI_VERIFY_SSL", raising=False)
+        monkeypatch.delenv("TI_VERIFY_SSL", raising=False)
+
+    def test_default_verifies(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._clear_env(monkeypatch)
+        monkeypatch.setattr(
+            "deepagents_code.config_manifest.load_config_toml", lambda: {}
+        )
+        assert tijwt.resolve_verify_ssl() is True
+
+    @pytest.mark.parametrize("raw", ["0", "false", "no", "off"])
+    def test_falsy_disables(
+        self, monkeypatch: pytest.MonkeyPatch, raw: str
+    ) -> None:
+        monkeypatch.setenv("TI_VERIFY_SSL", raw)
+        assert tijwt.resolve_verify_ssl() is False
+
+    @pytest.mark.parametrize("raw", ["1", "true", "yes", "on"])
+    def test_truthy_enables(
+        self, monkeypatch: pytest.MonkeyPatch, raw: str
+    ) -> None:
+        monkeypatch.setenv("TI_VERIFY_SSL", raw)
+        assert tijwt.resolve_verify_ssl() is True
+
+    def test_unrecognized_falls_through(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("TI_VERIFY_SSL", "maybe")
+        monkeypatch.setattr(
+            "deepagents_code.config_manifest.load_config_toml", lambda: {}
+        )
+        assert tijwt.resolve_verify_ssl() is True
+
+    def test_config_toml_used(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._clear_env(monkeypatch)
+        monkeypatch.setattr(
+            "deepagents_code.config_manifest.load_config_toml",
+            lambda: {"models": {"ti_verify_ssl": False}},
+        )
+        assert tijwt.resolve_verify_ssl() is False
+
+    def test_verify_on_adds_no_clients(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("DEEPAGENTS_CODE_AUTH_MODE", "tijwt")
+        monkeypatch.setattr(tijwt, "get_tijwt_token", lambda: "jwt-xyz")
+        self._clear_env(monkeypatch)
+        monkeypatch.setattr(
+            "deepagents_code.config_manifest.load_config_toml", lambda: {}
+        )
+        from deepagents_code import config as _config
+
+        out = _config._apply_tijwt_auth_kwargs("openai", {})
+        assert "http_client" not in out
+        assert "http_async_client" not in out
+
+    def test_verify_off_injects_clients(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        httpx = pytest.importorskip("httpx")
+        monkeypatch.setenv("DEEPAGENTS_CODE_AUTH_MODE", "tijwt")
+        monkeypatch.setenv("TI_VERIFY_SSL", "false")
+        monkeypatch.setattr(tijwt, "get_tijwt_token", lambda: "jwt-xyz")
+        from deepagents_code import config as _config
+
+        out = _config._apply_tijwt_auth_kwargs("openai", {})
+        assert isinstance(out["http_client"], httpx.Client)
+        assert out["http_client"].verify is False
+        assert isinstance(out["http_async_client"], httpx.AsyncClient)
+        assert out["http_async_client"].verify is False
+
+    def test_explicit_clients_win(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        pytest.importorskip("httpx")
+        monkeypatch.setenv("DEEPAGENTS_CODE_AUTH_MODE", "tijwt")
+        monkeypatch.setenv("TI_VERIFY_SSL", "0")
+        monkeypatch.setattr(tijwt, "get_tijwt_token", lambda: "jwt-xyz")
+        from deepagents_code import config as _config
+
+        sentinel = object()
+        out = _config._apply_tijwt_auth_kwargs(
+            "openai", {"http_client": sentinel}
+        )
+        assert out["http_client"] is sentinel
+        assert "http_async_client" in out

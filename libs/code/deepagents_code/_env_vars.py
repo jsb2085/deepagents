@@ -443,6 +443,16 @@ Also settable via `[models].ti_team_id` in config.toml. `TI_TEAM_ID` and
 are honored as fallback env names.
 """
 
+TI_VERIFY_SSL = "DEEPAGENTS_CODE_TI_VERIFY_SSL"
+"""Verify TLS certificates for the TI gateway in `tijwt` auth mode.
+
+Enabled by default; set to a falsy value (`0`, `false`, `no`, `off`) to skip
+verification (e.g. behind a corporate TLS-intercepting proxy). Also settable
+via `[models].ti_verify_ssl` in config.toml. `TI_VERIFY_SSL` is honored as a
+fallback env name. Disabling weakens connection security — the app logs a
+warning whenever verification is off.
+"""
+
 USER_ID = "DEEPAGENTS_CODE_USER_ID"
 """Attach a user identifier to LangSmith trace metadata."""
 

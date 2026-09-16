@@ -1164,6 +1164,19 @@ _STATIC_OPTIONS: tuple[ConfigOption, ...] = (
         fallback_env_vars=("TI_TEAM_ID", "LITELLM_TEAM_ID"),
         toml_keys=("models", "ti_team_id"),
     ),
+    ConfigOption(
+        key="models.ti_verify_ssl",
+        group="Models",
+        summary=(
+            "Verify TLS certificates for the TI gateway in 'tijwt' auth mode "
+            "(disable only behind a TLS-intercepting proxy)."
+        ),
+        kind=OptionKind.BOOL,
+        default=True,
+        env_var=_env_vars.TI_VERIFY_SSL,
+        fallback_env_vars=("TI_VERIFY_SSL",),
+        toml_keys=("models", "ti_verify_ssl"),
+    ),
     # --- Tracing -------------------------------------------------------
     ConfigOption(
         key="tracing.langsmith_project",
