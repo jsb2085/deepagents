@@ -1115,6 +1115,68 @@ _STATIC_OPTIONS: tuple[ConfigOption, ...] = (
         kind=OptionKind.STR,
         toml_keys=("models", "recent"),
     ),
+    ConfigOption(
+        key="models.auth_mode",
+        group="Models",
+        summary=(
+            "Model auth mode ('api' for provider keys, 'tijwt'/'kerberos' for "
+            "a Kerberos-ticket JWT via the TI token fetcher)."
+        ),
+        kind=OptionKind.STR,
+        default="api",
+        env_var=_env_vars.AUTH_MODE,
+        fallback_env_vars=("TI_AUTH_MODE",),
+        toml_keys=("models", "auth_mode"),
+        cli_flag="--auth-mode",
+    ),
+    ConfigOption(
+        key="models.ti_get_token_cmd",
+        group="Models",
+        summary=(
+            "Token fetcher for 'tijwt' auth mode (shell-split command string; "
+            "default 'node get-token.js')."
+        ),
+        kind=OptionKind.STR,
+        env_var=_env_vars.TI_GET_TOKEN_CMD,
+        fallback_env_vars=("TI_GET_TOKEN_CMD",),
+        toml_keys=("models", "ti_get_token_cmd"),
+    ),
+    ConfigOption(
+        key="models.ti_base_url",
+        group="Models",
+        summary=(
+            "LiteLLM gateway endpoint used in 'tijwt' auth mode "
+            "(default 'https://llmgateway.itg.ti.com/v1')."
+        ),
+        kind=OptionKind.STR,
+        env_var=_env_vars.TI_BASE_URL,
+        fallback_env_vars=("TI_BASE_URL",),
+        toml_keys=("models", "ti_base_url"),
+    ),
+    ConfigOption(
+        key="models.ti_team_id",
+        group="Models",
+        summary=(
+            "LiteLLM team ID sent as 'x-litellm-team-id' in 'tijwt' auth mode."
+        ),
+        kind=OptionKind.STR,
+        env_var=_env_vars.TI_TEAM_ID,
+        fallback_env_vars=("TI_TEAM_ID", "LITELLM_TEAM_ID"),
+        toml_keys=("models", "ti_team_id"),
+    ),
+    ConfigOption(
+        key="models.ti_verify_ssl",
+        group="Models",
+        summary=(
+            "Verify TLS certificates for the TI gateway in 'tijwt' auth mode "
+            "(disable only behind a TLS-intercepting proxy)."
+        ),
+        kind=OptionKind.BOOL,
+        default=True,
+        env_var=_env_vars.TI_VERIFY_SSL,
+        fallback_env_vars=("TI_VERIFY_SSL",),
+        toml_keys=("models", "ti_verify_ssl"),
+    ),
     # --- Tracing -------------------------------------------------------
     ConfigOption(
         key="tracing.langsmith_project",

@@ -106,6 +106,13 @@ COMMANDS: tuple[SlashCommand, ...] = (
         aliases=("/connect",),
     ),
     SlashCommand(
+        name="/auth-mode",
+        description="Toggle model auth between API keys and Kerberos JWT",
+        bypass_tier=BypassTier.SIDE_EFFECT_FREE,
+        hidden_keywords="auth kerberos tijwt token api authentication",
+        argument_hint="[api|tijwt|kerberos|status]",
+    ),
+    SlashCommand(
         name="/clear",
         description="Clear the chat and start a new thread",
         bypass_tier=BypassTier.QUEUED,

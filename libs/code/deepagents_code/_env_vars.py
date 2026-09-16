@@ -30,6 +30,16 @@ import os
 # Keep alphabetically sorted by constant name.
 # ---------------------------------------------------------------------------
 
+AUTH_MODE = "DEEPAGENTS_CODE_AUTH_MODE"
+"""Model auth mode (`api` or `tijwt`/`kerberos`).
+
+`api` (default) uses provider API keys from env / `/auth`. `tijwt` exchanges
+the Kerberos ticket for a short-lived JWT via the `TI_GET_TOKEN_CMD` fetcher
+and uses it as the provider bearer token. Also settable via
+`[models].auth_mode` in config.toml and the `--auth-mode` CLI flag (which wins).
+`TI_AUTH_MODE` is honored as a fallback env name.
+"""
+
 AUTO_UPDATE = "DEEPAGENTS_CODE_AUTO_UPDATE"
 """Toggle automatic app updates. Enabled by default; set to a falsy value
 ('0', 'false', 'no', 'off', or empty) to opt out."""
@@ -408,6 +418,40 @@ the warning when this coexistence is expected. Parsed by `is_env_truthy`.
 
 THEME = "DEEPAGENTS_CODE_THEME"
 """Force the CLI to launch with this theme name when set."""
+
+TI_BASE_URL = "DEEPAGENTS_CODE_TI_BASE_URL"
+"""LiteLLM gateway endpoint used in `tijwt` auth mode.
+
+Defaults to `https://llmgateway.itg.ti.com/v1`. Also settable via
+`[models].ti_base_url` in config.toml. `TI_BASE_URL` is honored as a fallback
+env name. Only applies when no explicit provider `base_url` is configured.
+"""
+
+TI_GET_TOKEN_CMD = "DEEPAGENTS_CODE_TI_GET_TOKEN_CMD"
+"""Token fetcher for `tijwt` auth mode, as a shell-split command string.
+
+Defaults to `node get-token.js` (Kerberos ticket -> JWT on stdout). Also
+settable via `[models].ti_get_token_cmd` in config.toml. `TI_GET_TOKEN_CMD`
+is honored as a fallback env name.
+"""
+
+TI_TEAM_ID = "DEEPAGENTS_CODE_TI_TEAM_ID"
+"""LiteLLM team ID sent as `x-litellm-team-id` in `tijwt` auth mode.
+
+Also settable via `[models].ti_team_id` in config.toml. `TI_TEAM_ID` and
+`LITELLM_TEAM_ID` (the env name used by the reference `TIJWTTokenProvider`)
+are honored as fallback env names.
+"""
+
+TI_VERIFY_SSL = "DEEPAGENTS_CODE_TI_VERIFY_SSL"
+"""Verify TLS certificates for the TI gateway in `tijwt` auth mode.
+
+Enabled by default; set to a falsy value (`0`, `false`, `no`, `off`) to skip
+verification (e.g. behind a corporate TLS-intercepting proxy). Also settable
+via `[models].ti_verify_ssl` in config.toml. `TI_VERIFY_SSL` is honored as a
+fallback env name. Disabling weakens connection security — the app logs a
+warning whenever verification is off.
+"""
 
 USER_ID = "DEEPAGENTS_CODE_USER_ID"
 """Attach a user identifier to LangSmith trace metadata."""

@@ -2069,6 +2069,34 @@ def get_provider_auth_status(provider: str) -> ProviderAuthStatus:
     if provider == CODEX_PROVIDER:
         return _get_codex_auth_status()
 
+    # TI JWT (Kerberos ticket) mode supplies a bearer token at model-build
+    # time, so every provider reads as configured even without an API key.
+    try:
+        from deepagents_code import tijwt as _tijwt
+
+        if _tijwt.resolve_auth_mode() == _tijwt.TIJWT_AUTH_MODE:
+            from deepagents_code import _env_vars as _auth_env_vars
+
+            return ProviderAuthStatus(
+                state=ProviderAuthState.CONFIGURED,
+                provider=provider,
+                env_var=_auth_env_vars.AUTH_MODE,
+                source=ProviderAuthSource.ENV,
+                detail="TI JWT via Kerberos ticket",
+            )
+    except ImportError:
+        pass
+    except Exception as exc:  # noqa: BLE001
+        from deepagents_code.tijwt import TIJWTError as _TIJWTError
+
+        if isinstance(exc, _TIJWTError):
+            return ProviderAuthStatus(
+                state=ProviderAuthState.MISSING,
+                provider=provider,
+                detail=str(exc),
+            )
+        logger.debug("TI JWT auth-mode check failed; using API-key auth", exc_info=True)
+
     # Config-file providers take priority when api_key_env is specified.
     config = ModelConfig.load()
     provider_config = config.providers.get(provider)
@@ -3102,6 +3130,23 @@ def save_default_model(model_spec: str, config_path: Path | None = None) -> bool
         This function does not preserve comments in the config file.
     """
     return _save_model_field("default", model_spec, config_path)
+
+
+def save_auth_mode(auth_mode: str, config_path: Path | None = None) -> bool:
+    """Persist the model auth mode (`api` or `tijwt`) in config file.
+
+    Writes `[models].auth_mode` via the shared read-modify-write helper so
+    the toggle survives restarts. Validation is the caller's job; this stores
+    the canonical mode verbatim.
+
+    Args:
+        auth_mode: Canonical auth mode (`api` or `tijwt`).
+        config_path: Path to config file.
+
+    Returns:
+        `True` if save succeeded, `False` on I/O error.
+    """
+    return _save_model_field("auth_mode", auth_mode, config_path)
 
 
 def clear_default_model(config_path: Path | None = None) -> bool:

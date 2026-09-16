@@ -4362,12 +4362,139 @@ def _get_provider_kwargs(
                         client_kwargs["headers"] = headers
                         result["client_kwargs"] = client_kwargs
 
+    result = _apply_tijwt_auth_kwargs(provider, result)
+
     retry_section = _read_config_toml_retries()
     retry_kwargs = _resolve_retry_kwargs(retry_section, provider)
     for key, value in retry_kwargs.items():
         result.setdefault(key, value)
 
     return result
+
+
+def _apply_tijwt_auth_kwargs(provider: str, kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Override model kwargs with TI gateway auth when `tijwt` mode is active.
+
+    In `tijwt` mode the Kerberos-ticket JWT replaces any API key and requests
+    route to the TI LiteLLM gateway with the team header attached:
+
+    - Standard providers receive the JWT as `api_key`, while `ollama` (which
+      has no `api_key` kwarg) receives it as an `Authorization` header.
+    - `base_url` defaults to the gateway endpoint when the user has not set an
+      explicit endpoint; `litellm` additionally gets `api_base` because older
+      `ChatLiteLLM` versions silently ignore `base_url`.
+    - The `x-litellm-team-id` header is merged into both `default_headers`
+      (`ChatOpenAI` family) and `extra_headers` (`ChatLiteLLM` family).
+      Unknown header kwargs are ignored by Pydantic-based chat models
+      (`extra="ignore"`), so setting both is safe across providers; explicit
+      user headers always win on conflict.
+
+    The Codex provider keeps its OAuth flow and is never overridden.
+
+    Args:
+        provider: Provider name (may be empty for auto-detection).
+        kwargs: Layered model constructor parameters.
+
+    Returns:
+        Updated kwargs, or the original mapping when `api` mode is active.
+    """
+    from deepagents_code.model_config import CODEX_PROVIDER, ModelConfigError
+
+    if provider == CODEX_PROVIDER:
+        return kwargs
+    try:
+        from deepagents_code import tijwt as _tijwt
+    except ImportError:
+        return kwargs
+    try:
+        if _tijwt.resolve_auth_mode() != _tijwt.TIJWT_AUTH_MODE:
+            return kwargs
+        token = _tijwt.get_tijwt_token()
+        team_id = _tijwt.resolve_team_id()
+        gateway_url = _tijwt.resolve_base_url()
+    except Exception as exc:  # noqa: BLE001
+        from deepagents_code.tijwt import TIJWTError
+
+        if isinstance(exc, TIJWTError):
+            msg = f"TI JWT auth failed: {exc}"
+            raise ModelConfigError(msg) from exc
+        logger.debug("TI JWT auth check failed; using API-key auth", exc_info=True)
+        return kwargs
+    updated = dict(kwargs)
+    if provider == "ollama":
+        client_kwargs = updated.get("client_kwargs")
+        if not isinstance(client_kwargs, dict):
+            client_kwargs = {}
+        headers = client_kwargs.get("headers")
+        if not isinstance(headers, dict):
+            headers = {}
+        else:
+            headers = dict(headers)
+        headers["Authorization"] = f"Bearer {token}"
+        client_kwargs = {**client_kwargs, "headers": headers}
+        updated["client_kwargs"] = client_kwargs
+    else:
+        updated["api_key"] = token
+    if "base_url" not in updated:
+        updated["base_url"] = gateway_url
+    if provider == "litellm" and "api_base" not in updated:
+        updated["api_base"] = updated["base_url"]
+    team_header = {_tijwt.TI_TEAM_ID_HEADER: team_id}
+    for key in ("default_headers", "extra_headers"):
+        existing = updated.get(key)
+        if existing is None:
+            updated[key] = dict(team_header)
+        elif isinstance(existing, dict):
+            updated[key] = {**team_header, **existing}
+        else:
+            logger.warning(
+                "Provider '%s' has non-mapping %s (%s);"
+                " skipping TI team-header injection",
+                provider or "<auto>",
+                key,
+                type(existing).__name__,
+            )
+    if not _tijwt.resolve_verify_ssl():
+        _apply_tijwt_insecure_clients(provider, updated)
+    logger.debug("Using TI JWT (Kerberos) auth for provider '%s'", provider or "<auto>")
+    return updated
+
+
+def _apply_tijwt_insecure_clients(provider: str, kwargs: dict[str, Any]) -> None:
+    """Disable TLS verification for TI gateway requests (mutates `kwargs`).
+
+    Builds `httpx` sync/async clients with `verify=False` and sets them as
+    `http_client` / `http_async_client` — the override knobs `ChatOpenAI` and
+    other OpenAI-compatible integrations read. Explicit user-supplied clients
+    always win. Unknown client kwargs are ignored by Pydantic-based chat
+    models (`extra="ignore"`), so this is safe across providers. Skipped for
+    `ollama`, which threads HTTP options through `client_kwargs` instead.
+
+    Args:
+        provider: Provider name (may be empty for auto-detection).
+        kwargs: Model constructor parameters to update in place.
+    """
+    if provider == "ollama":
+        logger.debug("Skipping TLS-verification opt-out for provider 'ollama'")
+        return
+    try:
+        import httpx
+    except ImportError:
+        logger.warning(
+            "Cannot disable TLS verification for the TI gateway:"
+            " httpx is not installed"
+        )
+        return
+    # Always warn (not debug): skipping verification weakens connection
+    # security, so the opt-out must leave a visible breadcrumb.
+    logger.warning(
+        "TLS verification disabled for TI gateway requests"
+        " (ti_verify_ssl=false). Only use this behind a trusted proxy."
+    )
+    if kwargs.get("http_client") is None:
+        kwargs["http_client"] = httpx.Client(verify=False)
+    if kwargs.get("http_async_client") is None:
+        kwargs["http_async_client"] = httpx.AsyncClient(verify=False)
 
 
 def _compose_openai_reasoning_effort(
@@ -4750,13 +4877,27 @@ def create_model(
     # Stored API keys (added via `/auth`) take effect by being copied onto
     # the env var name LangChain reads. Apply before the credential check so
     # `has_provider_credentials` and the downstream SDK see the same value.
+    # Skipped in `tijwt` mode: the Kerberos JWT is injected as an explicit
+    # kwarg later, so a stale stored key must not be bridged onto the env.
     if provider:
-        # Flag a key/endpoint resolved from different env tiers *before*
-        # `apply_stored_credentials` bridges stored values onto plain env vars,
-        # so the check sees the user's raw env intent rather than post-bridge
-        # state. Diagnostic only -- never alters resolution.
-        warn_on_split_credential_source(provider)
-        apply_stored_credentials(provider)
+        from deepagents_code import tijwt as _tijwt_check
+
+        _tijwt_active = False
+        try:
+            _tijwt_active = (
+                _tijwt_check.resolve_auth_mode() == _tijwt_check.TIJWT_AUTH_MODE
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug(
+                "TI JWT auth-mode check failed; using API-key auth", exc_info=True
+            )
+        if not _tijwt_active:
+            # Flag a key/endpoint resolved from different env tiers *before*
+            # `apply_stored_credentials` bridges stored values onto plain env vars,
+            # so the check sees the user's raw env intent rather than post-bridge
+            # state. Diagnostic only -- never alters resolution.
+            warn_on_split_credential_source(provider)
+            apply_stored_credentials(provider)
 
     from deepagents_code.model_config import CODEX_PROVIDER
 
