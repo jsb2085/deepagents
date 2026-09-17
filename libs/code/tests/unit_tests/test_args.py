@@ -373,6 +373,21 @@ class TestSubcommandHelpFlags:
             must_not_contain="--sandbox",
         )
 
+    def test_models_list_help(self) -> None:
+        """Running `deepagents models list -h` should show models list help."""
+        self._run_help(
+            ["deepagents", "models", "list", "-h"],
+            must_contain="grouped by provider",
+            must_not_contain="--sandbox",
+        )
+
+    def test_models_list_parses(self) -> None:
+        """Running `deepagents models list` should set `models_command`."""
+        with patch.object(sys, "argv", ["deepagents", "models", "list"]):
+            args = parse_args()
+        assert args.command == "models"
+        assert args.models_command == "list"
+
 
 class TestShortFlags:
     """Test that short flag aliases (-a, -M, -S, -v, -y) parse correctly."""

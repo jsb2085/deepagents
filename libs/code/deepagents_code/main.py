@@ -1488,6 +1488,7 @@ _HELP_SPECS: dict[str, tuple[str | None, str]] = {
     "mcp": ("mcp_command", "show_mcp_help"),
     "auth": ("auth_command", "show_auth_help"),
     "tools": ("tools_command", "show_tools_help"),
+    "models": ("models_command", "show_models_help"),
 }
 """Maps top-level command names to their startup-fast-path help dispatch.
 
@@ -1825,6 +1826,23 @@ def parse_args() -> argparse.Namespace:
         parents=help_parent(_lazy_help("show_tools_list_help")),
     )
     add_json_output_arg(tools_list)
+
+    models_parser = subparsers.add_parser(
+        "models",
+        help="List the models available to the agent",
+        add_help=False,
+        parents=help_parent(_lazy_help("show_models_help")),
+    )
+    add_json_output_arg(models_parser)
+    models_sub = models_parser.add_subparsers(dest="models_command")
+
+    models_list = models_sub.add_parser(
+        "list",
+        help="List the models available to the agent",
+        add_help=False,
+        parents=help_parent(_lazy_help("show_models_list_help")),
+    )
+    add_json_output_arg(models_list)
 
     install_parser = subparsers.add_parser(
         "install",
@@ -3779,6 +3797,11 @@ def cli_main() -> None:
             from deepagents_code.client.commands.tools import run_tools_command
 
             sys.exit(run_tools_command(args))
+
+        if command == "models":
+            from deepagents_code.client.commands.models import run_models_command
+
+            sys.exit(run_models_command(args))
 
         if command == "install":
             from deepagents_code.client.commands.extras import run_install_command

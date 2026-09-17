@@ -56,6 +56,9 @@ this fallback).
 TI_TEAM_ID_HEADER = "x-litellm-team-id"
 """Request header carrying the LiteLLM team ID alongside the JWT bearer token."""
 
+TI_MODELS_TIMEOUT_SECONDS = 15.0
+"""HTTP timeout for the gateway `/v1/models` listing probe."""
+
 
 class TIJWTError(RuntimeError):
     """Raised when a TI JWT cannot be fetched or the auth mode is invalid."""
@@ -361,6 +364,88 @@ def resolve_verify_ssl() -> bool:
     except Exception:
         logger.debug("Could not read [models].ti_verify_ssl", exc_info=True)
     return True
+
+
+def list_gateway_models(*, timeout: float = TI_MODELS_TIMEOUT_SECONDS) -> list[str]:
+    """List model IDs served by the TI LiteLLM gateway (`GET /v1/models`).
+
+    Authenticates with the cached TI JWT plus the team header, mirroring the
+    reference "Method 2" snippet. Proxy servers from the environment are
+    honored (`urllib` reads `HTTP(S)_PROXY`/`NO_PROXY`), and the
+    `ti_verify_ssl` setting controls TLS verification. Best-effort by design:
+    any failure (missing ticket, unreachable gateway, auth rejection,
+    malformed payload) yields an empty list with a log line instead of
+    raising, so model discovery can never break the `/model` selector.
+
+    Args:
+        timeout: HTTP timeout in seconds for the listing probe.
+
+    Returns:
+        Sorted model IDs reported by the gateway, or `[]` when the probe
+            fails for any reason.
+
+    Raises:
+        TIJWTError: If the auth mode is not `tijwt` (a programming error —
+            callers must gate on `resolve_auth_mode` first) or no valid
+            configuration resolves. Token-fetch failures are *not* raised;
+            they degrade to `[]` like every other probe failure.
+    """
+    import json
+    import ssl
+    from urllib.error import URLError
+    from urllib.request import Request, urlopen
+
+    if resolve_auth_mode() != TIJWT_AUTH_MODE:
+        msg = "list_gateway_models requires tijwt auth mode"
+        raise TIJWTError(msg)
+    try:
+        token = get_tijwt_token()
+    except TIJWTError as exc:
+        logger.debug("TI gateway model probe skipped: %s", exc)
+        return []
+    base_url = resolve_base_url().rstrip("/")
+    if not base_url.startswith(("http://", "https://")):
+        logger.warning(
+            "Skipping TI gateway model probe: %r has no http:// or https:// scheme",
+            base_url,
+        )
+        return []
+    url = f"{base_url}/v1/models"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        TI_TEAM_ID_HEADER: resolve_team_id(),
+    }
+    request = Request(url, headers=headers)  # noqa: S310  # scheme guarded above
+    context = None
+    if url.startswith("https://") and not resolve_verify_ssl():
+        # Explicit user opt-out (`ti_verify_ssl = false`): skip certificate
+        # verification for self-signed corporate gateways.
+        context = ssl._create_unverified_context()  # noqa: S323
+    try:
+        with urlopen(  # noqa: S310  # scheme guarded above
+            request, timeout=timeout, context=context
+        ) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (URLError, TimeoutError, OSError, ValueError) as exc:
+        logger.debug("TI gateway model probe failed for %s: %s", url, exc)
+        return []
+    except Exception as exc:  # noqa: BLE001  # discovery is best-effort
+        logger.warning(
+            "TI gateway model probe raised unexpected %s for %s: %s",
+            type(exc).__name__,
+            url,
+            exc,
+        )
+        return []
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        logger.debug("TI gateway model probe: unexpected payload shape")
+        return []
+    return sorted(
+        entry["id"]
+        for entry in data
+        if isinstance(entry, dict) and isinstance(entry.get("id"), str)
+    )
 
 
 def resolve_auth_mode(*, cli_value: str | None = None) -> str:

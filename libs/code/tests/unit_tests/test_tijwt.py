@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import subprocess
 import threading
-from typing import Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import pytest
 
 from deepagents_code import tijwt
 from deepagents_code.tijwt import TIJWTError, TIJWTManager, normalize_auth_mode
+
+if TYPE_CHECKING:
+    from urllib.request import Request as _Request
 
 
 class TestNormalizeAuthMode:
@@ -450,9 +453,16 @@ class TestVerifySsl:
 
         out = _config._apply_tijwt_auth_kwargs("openai", {})
         assert isinstance(out["http_client"], httpx.Client)
-        assert out["http_client"].verify is False
         assert isinstance(out["http_async_client"], httpx.AsyncClient)
-        assert out["http_async_client"].verify is False
+        # `httpx.Client` exposes no public `verify` flag; `verify=False`
+        # surfaces as a non-verifying SSL context on the underlying pool.
+        import ssl as _ssl
+
+        for client in (out["http_client"], out["http_async_client"]):
+            pool = client._transport._pool  # private access, assertion only
+            context = pool._ssl_context  # private access, assertion only
+            assert context.verify_mode == _ssl.CERT_NONE
+            assert context.check_hostname is False
 
     def test_explicit_clients_win(self, monkeypatch: pytest.MonkeyPatch) -> None:
         pytest.importorskip("httpx")
@@ -467,3 +477,153 @@ class TestVerifySsl:
         )
         assert out["http_client"] is sentinel
         assert "http_async_client" in out
+
+
+class TestListGatewayModels:
+    """Live `/v1/models` probe behavior."""
+
+    def _tijwt_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("DEEPAGENTS_CODE_AUTH_MODE", "tijwt")
+        monkeypatch.setattr(tijwt, "get_tijwt_token", lambda: "jwt-probe")
+        monkeypatch.delenv("DEEPAGENTS_CODE_TI_BASE_URL", raising=False)
+        monkeypatch.delenv("TI_BASE_URL", raising=False)
+        monkeypatch.delenv("DEEPAGENTS_CODE_TI_TEAM_ID", raising=False)
+        monkeypatch.delenv("TI_TEAM_ID", raising=False)
+        monkeypatch.delenv("LITELLM_TEAM_ID", raising=False)
+        monkeypatch.setattr("deepagents_code.config_manifest.load_config_toml", dict)
+
+    def _fake_urlopen(self, body: bytes) -> tuple[Any, dict[str, str | None]]:
+        """Build a `urlopen` stub serving `body` plus its recorded request.
+
+        Returns:
+            `(fake_urlopen, seen)` where `seen` maps `"url"`,
+                `"auth"`, and `"team"` to the observed request values.
+        """
+        from unittest.mock import MagicMock
+
+        seen: dict[str, str | None] = {}
+
+        def fake_urlopen(request: _Request, **_kwargs: Any) -> MagicMock:
+            seen["url"] = request.full_url
+            seen["auth"] = request.get_header("Authorization")
+            seen["team"] = request.get_header("X-litellm-team-id")
+            response = MagicMock()
+            response.read.return_value = body
+            response.__enter__.return_value = response
+            return response
+
+        return fake_urlopen, seen
+
+    def test_success_returns_sorted_ids(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import json
+
+        self._tijwt_env(monkeypatch)
+        body = json.dumps(
+            {
+                "object": "list",
+                "data": [
+                    {"id": "claude-opus-4-6", "object": "model"},
+                    {"id": "gpt-4o", "object": "model"},
+                    {"id": 123, "object": "model"},
+                    {"nope": True},
+                ],
+            }
+        ).encode()
+        fake_urlopen, seen = self._fake_urlopen(body)
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        assert tijwt.list_gateway_models() == ["claude-opus-4-6", "gpt-4o"]
+        assert seen["url"] == f"{tijwt.TI_GATEWAY_DEFAULT_BASE_URL}/v1/models"
+        assert seen["auth"] == "Bearer jwt-probe"
+        assert seen["team"] == tijwt.TI_DEFAULT_TEAM_ID
+
+    def test_http_failure_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from urllib.error import URLError
+
+        self._tijwt_env(monkeypatch)
+
+        def fake_urlopen(*_args: Any, **_kwargs: Any) -> NoReturn:
+            msg = "connection refused"
+            raise URLError(msg)
+
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        assert tijwt.list_gateway_models() == []
+
+    def test_token_failure_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("DEEPAGENTS_CODE_AUTH_MODE", "tijwt")
+        monkeypatch.setattr("deepagents_code.config_manifest.load_config_toml", dict)
+
+        def boom() -> str:
+            msg = "kerberos ticket expired"
+            raise TIJWTError(msg)
+
+        monkeypatch.setattr(tijwt, "get_tijwt_token", boom)
+        assert tijwt.list_gateway_models() == []
+
+    def test_non_tijwt_mode_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("DEEPAGENTS_CODE_AUTH_MODE", "api")
+        monkeypatch.setattr("deepagents_code.config_manifest.load_config_toml", dict)
+        with pytest.raises(TIJWTError):
+            tijwt.list_gateway_models()
+
+
+class TestGatewayModelMerge:
+    """Merging live gateway IDs into the model catalog."""
+
+    def _tijwt_env(
+        self, monkeypatch: pytest.MonkeyPatch, *, mode: str = "tijwt"
+    ) -> None:
+        monkeypatch.setenv("DEEPAGENTS_CODE_AUTH_MODE", mode)
+        monkeypatch.setattr("deepagents_code.config_manifest.load_config_toml", dict)
+
+    def _stub_gateway_models(
+        self, monkeypatch: pytest.MonkeyPatch, models: list[str]
+    ) -> None:
+        def stub(*_args: Any, **_kwargs: Any) -> list[str]:
+            return list(models)
+
+        monkeypatch.setattr(tijwt, "list_gateway_models", stub)
+
+    def test_merge_prefers_openai(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from deepagents_code import model_config as _mc
+
+        self._tijwt_env(monkeypatch)
+        _mc.clear_caches()
+        self._stub_gateway_models(monkeypatch, ["b-model", "a-model"])
+        available: dict[str, list[str]] = {"openai": ["gpt-4o"], "litellm": []}
+        _mc._merge_ti_gateway_models(available, _mc.ModelConfig.load())
+        assert available["openai"] == ["gpt-4o", "b-model", "a-model"]
+        _mc.clear_caches()
+
+    def test_merge_falls_back_to_litellm(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from deepagents_code import model_config as _mc
+
+        self._tijwt_env(monkeypatch)
+        _mc.clear_caches()
+        self._stub_gateway_models(monkeypatch, ["claude-x"])
+        available: dict[str, list[str]] = {"litellm": ["existing"]}
+        _mc._merge_ti_gateway_models(available, _mc.ModelConfig.load())
+        assert available["litellm"] == ["existing", "claude-x"]
+        _mc.clear_caches()
+
+    def test_merge_skipped_without_compatible_provider(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from deepagents_code import model_config as _mc
+
+        self._tijwt_env(monkeypatch)
+        _mc.clear_caches()
+        self._stub_gateway_models(monkeypatch, ["m"])
+        available: dict[str, list[str]] = {"ollama": ["llama3"]}
+        _mc._merge_ti_gateway_models(available, _mc.ModelConfig.load())
+        assert available == {"ollama": ["llama3"]}
+        _mc.clear_caches()
+
+    def test_merge_inactive_in_api_mode(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from deepagents_code import model_config as _mc
+
+        self._tijwt_env(monkeypatch, mode="api")
+        _mc.clear_caches()
+        available: dict[str, list[str]] = {"openai": ["gpt-4o"]}
+        _mc._merge_ti_gateway_models(available, _mc.ModelConfig.load())
+        assert available == {"openai": ["gpt-4o"]}
+        _mc.clear_caches()
