@@ -1,4 +1,4 @@
-.PHONY: lint format type typecheck test help test_integration test_watch stage-harbor-local-deps run-hello-world run-terminal-bench-modal run-terminal-bench-docker run-terminal-bench-daytona run-terminal-bench-runloop run-terminal-bench-langsmith evals evals-trials format_unsafe radar radar-from-summary model-groups eval-catalog
+.PHONY: dataset dataset-check lint format type typecheck test help test_integration test_watch stage-harbor-local-deps run-hello-world run-terminal-bench-modal run-terminal-bench-docker run-terminal-bench-daytona run-terminal-bench-runloop run-terminal-bench-langsmith evals evals-trials format_unsafe radar radar-from-summary model-groups eval-catalog
 
 .DEFAULT_GOAL := help
 
@@ -15,7 +15,7 @@ test: ## Run unit tests
 
 evals: ## Run evals (set MODEL=<id>; required)
 	@if [ -z "$(MODEL)" ]; then \
-		echo "ERROR: MODEL is required. Example: make evals MODEL=claude-opus-4-7" >&2; \
+		echo "ERROR: MODEL is required. Example: make evals MODEL=claude-opus-5" >&2; \
 		exit 1; \
 	fi
 	LANGSMITH_TEST_SUITE=deepagents-evals uv run --group test pytest tests/evals -v --tb=short --model $(MODEL) $(PYTEST_EXTRA)
@@ -26,11 +26,11 @@ TRIALS ?=
 TRIAL_ARGS ?=
 evals-trials: ## Run evals N times (set MODEL=<id> TRIALS=<n>; both required)
 	@if [ -z "$(MODEL)" ]; then \
-		echo "ERROR: MODEL is required. Example: make evals-trials MODEL=openai:gpt-5.5 TRIALS=5" >&2; \
+		echo "ERROR: MODEL is required. Example: make evals-trials MODEL=openai:gpt-6-astra TRIALS=5" >&2; \
 		exit 1; \
 	fi
 	@if [ -z "$(TRIALS)" ]; then \
-		echo "ERROR: TRIALS is required. Example: make evals-trials MODEL=openai:gpt-5.5 TRIALS=5" >&2; \
+		echo "ERROR: TRIALS is required. Example: make evals-trials MODEL=openai:gpt-6-astra TRIALS=5" >&2; \
 		exit 1; \
 	fi
 	uv run --group test python scripts/run_trials.py --model $(MODEL) --trials $(TRIALS) $(TRIAL_ARGS)
@@ -56,6 +56,7 @@ stage-harbor-local-deps: ## Stage checked-out packages for Harbor LangGraph sand
 	@mkdir -p $(HARBOR_LOCAL_DEPS_DIR)/partners
 	rsync -a --delete --exclude '.venv' --exclude '__pycache__' --exclude '.pytest_cache' --exclude 'build' --exclude 'dist' --exclude '*.egg-info' ../deepagents/ $(HARBOR_LOCAL_DEPS_DIR)/deepagents/
 	rsync -a --delete --exclude '.venv' --exclude '__pycache__' --exclude '.pytest_cache' --exclude 'build' --exclude 'dist' --exclude '*.egg-info' ../code/ $(HARBOR_LOCAL_DEPS_DIR)/deepagents-code/
+	rsync -a --delete --exclude '.venv' --exclude '__pycache__' --exclude '.pytest_cache' --exclude 'build' --exclude 'dist' --exclude '*.egg-info' ../acp/ $(HARBOR_LOCAL_DEPS_DIR)/acp/
 	rsync -a --delete --exclude '.venv' --exclude '__pycache__' --exclude '.pytest_cache' --exclude 'build' --exclude 'dist' --exclude '*.egg-info' ../partners/quickjs/ $(HARBOR_LOCAL_DEPS_DIR)/partners/quickjs/
 
 run-hello-world: stage-harbor-local-deps ## Run hello-world job (override model with MODEL=<id>)
@@ -80,7 +81,7 @@ run-terminal-bench-runloop: stage-harbor-local-deps ## Run terminal-bench on Run
 
 run-terminal-bench-langsmith: stage-harbor-local-deps ## Run terminal-bench on LangSmith prod sandboxes (sequential; override with MODEL=<id>)
 	@mkdir -p $(HARBOR_TERMINAL_BENCH_JOBS_DIR)
-	uv run harbor run $(HARBOR_AGENT_ARGS) $(HARBOR_AGENT_ENV_ARGS) --dataset $(HARBOR_TERMINAL_BENCH_DATASET) --model $(or $(MODEL),anthropic:claude-opus-4-8) -n 1 --jobs-dir $(HARBOR_TERMINAL_BENCH_JOBS_DIR) --env langsmith --plugin langsmith --plugin-kwarg dataset_name=$(HARBOR_TERMINAL_BENCH_DATASET) --plugin-kwarg experiment_name=$(HARBOR_LANGSMITH_EXPERIMENT)
+	uv run harbor run $(HARBOR_AGENT_ARGS) $(HARBOR_AGENT_ENV_ARGS) --dataset $(HARBOR_TERMINAL_BENCH_DATASET) --model $(or $(MODEL),anthropic:claude-opus-5) -n 1 --jobs-dir $(HARBOR_TERMINAL_BENCH_JOBS_DIR) --env langsmith --plugin langsmith --plugin-kwarg dataset_name=$(HARBOR_TERMINAL_BENCH_DATASET) --plugin-kwarg experiment_name=$(HARBOR_LANGSMITH_EXPERIMENT)
 
 ######################
 # CHARTS
@@ -109,6 +110,32 @@ model-groups: ## Regenerate MODEL_GROUPS.md from the canonical registry
 
 eval-catalog: ## Regenerate EVAL_CATALOG.md from eval test files
 	uv run python scripts/generate_eval_catalog.py
+
+######################
+# DRBENCH DATASET
+######################
+
+# datasets/drbench-evals commits no task directories. All 100 are generated from
+# upstream's configs at the commit pinned as `UPSTREAM_SHA` in
+# harbor_adapters/drbench/adapter.py, fetched with a sparse checkout that skips the
+# ~69 MiB document corpus (app mode's per-task image serves the documents instead).
+
+dataset: ## Build the DRBench task dataset from the pinned upstream commit
+	uv run python -m harbor_adapters.drbench.main --populate datasets/drbench-evals
+
+dataset-check: ## Verify DRBench pins match upstream and generation is deterministic
+	uv run python -m harbor_adapters.drbench.main --check-labels
+	uv run python -m harbor_adapters.drbench.main --check-subsets
+	@set -eu; \
+	first=$$(mktemp -d); second=$$(mktemp -d); \
+	trap 'rm -rf "$$first" "$$second"' EXIT; \
+	uv run python -m harbor_adapters.drbench.main --populate "$$first" >/dev/null; \
+	uv run python -m harbor_adapters.drbench.main --populate "$$second" >/dev/null; \
+	if diff -r "$$first" "$$second"; then \
+		echo "DRBench generation is deterministic ($$(find "$$first" -type f | wc -l | tr -d ' ') files)"; \
+	else \
+		echo "DRBench generation is NOT deterministic; see the diff above" >&2; exit 1; \
+	fi
 
 ######################
 # LINTING AND FORMATTING

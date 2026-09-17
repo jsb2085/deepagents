@@ -207,7 +207,7 @@ class TestModelWiring:
         from deepagents_code.model_config import ModelConfig
 
         class _FakeConfig:
-            def get_kwargs(
+            def get_effective_kwargs(
                 self, provider: str, *, model_name: str | None = None
             ) -> dict[str, Any]:
                 return {}
@@ -219,9 +219,6 @@ class TestModelWiring:
                 return None
 
         monkeypatch.setattr(ModelConfig, "load", classmethod(lambda cls: _FakeConfig()))
-        monkeypatch.setattr(
-            _config, "_read_config_toml_retries", lambda: None
-        )
         kwargs = _config._get_provider_kwargs("openai", model_name="gpt-5.5")
         assert kwargs["api_key"] == "jwt-123"
 
@@ -234,7 +231,7 @@ class TestModelWiring:
         from deepagents_code.model_config import ModelConfig
 
         class _FakeConfig:
-            def get_kwargs(
+            def get_effective_kwargs(
                 self, provider: str, *, model_name: str | None = None
             ) -> dict[str, Any]:
                 return {}
@@ -246,7 +243,6 @@ class TestModelWiring:
                 return None
 
         monkeypatch.setattr(ModelConfig, "load", classmethod(lambda cls: _FakeConfig()))
-        monkeypatch.setattr(_config, "_read_config_toml_retries", lambda: None)
         kwargs = _config._get_provider_kwargs("ollama")
         headers = kwargs["client_kwargs"]["headers"]
         assert headers["Authorization"] == "Bearer jwt-ollama"
@@ -319,19 +315,15 @@ class TestGatewayKwargs:
         from deepagents_code.model_config import ModelConfig
 
         class _FakeConfig:
-            def get_kwargs(
+            def get_effective_kwargs(
                 self, provider: str, *, model_name: str | None = None
             ) -> dict[str, Any]:
-                return {}
-
-            def get_base_url(self, provider: str) -> str | None:
-                return base_url
+                return {"base_url": base_url} if base_url else {}
 
             def get_api_key_env(self, provider: str) -> str | None:
                 return None
 
         monkeypatch.setattr(ModelConfig, "load", classmethod(lambda cls: _FakeConfig()))
-        monkeypatch.setattr(_config, "_read_config_toml_retries", lambda: None)
         return _config._get_provider_kwargs(provider)
 
     def test_gateway_base_url_and_headers(
@@ -450,9 +442,16 @@ class TestVerifySsl:
 
         out = _config._apply_tijwt_auth_kwargs("openai", {})
         assert isinstance(out["http_client"], httpx.Client)
-        assert out["http_client"].verify is False
         assert isinstance(out["http_async_client"], httpx.AsyncClient)
-        assert out["http_async_client"].verify is False
+        # `httpx.Client` exposes no public `verify` flag; `verify=False`
+        # surfaces as a non-verifying SSL context on the underlying pool.
+        import ssl as _ssl
+
+        for client in (out["http_client"], out["http_async_client"]):
+            pool = client._transport._pool  # private access, assertion only
+            context = pool._ssl_context  # private access, assertion only
+            assert context.verify_mode == _ssl.CERT_NONE
+            assert context.check_hostname is False
 
     def test_explicit_clients_win(self, monkeypatch: pytest.MonkeyPatch) -> None:
         pytest.importorskip("httpx")

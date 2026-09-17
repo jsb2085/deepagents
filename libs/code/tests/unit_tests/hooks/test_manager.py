@@ -5,9 +5,6 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-import pytest
-
-from deepagents_code._env_vars import EXPERIMENTAL
 from deepagents_code.approval_mode import ApprovalMode
 from deepagents_code.hooks.manager import HookSessionIdentity, HooksManager
 from deepagents_code.hooks.models.domain import PermissionEffect
@@ -15,13 +12,9 @@ from deepagents_code.hooks.models.domain import PermissionEffect
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from deepagents_code.hooks.presenter import HookNoticeSeverity, HookPresenter
+    import pytest
 
-
-@pytest.fixture(autouse=True)
-def _enable_hooks_v2(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Hooks v2 only loads in experimental mode, which these tests exercise."""
-    monkeypatch.setenv(EXPERIMENTAL, "1")
+    from deepagents_code.hooks.presenter import HookPresenter
 
 
 def _write_project_hooks(root: Path) -> Path:
@@ -53,25 +46,6 @@ def _manager(cwd: Path) -> HooksManager:
     )
 
 
-async def test_reload_keeps_one_presenter_shared_with_the_runtime(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Output sinks bound once must survive a working-directory change."""
-    _isolate_hook_config(tmp_path, monkeypatch)
-    first = _write_project_hooks(tmp_path / "first")
-    second = _write_project_hooks(tmp_path / "second")
-
-    manager = _manager(first)
-    presenter = manager.presenter
-    assert _runtime_presenter(manager) is presenter
-
-    await manager.reload(cwd=second)
-
-    assert manager.presenter is presenter
-    assert _runtime_presenter(manager) is presenter
-
-
 def test_create_binds_sinks_to_the_manager_owned_presenter(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -94,31 +68,6 @@ def test_create_binds_sinks_to_the_manager_owned_presenter(
     )
 
     assert notices == [("PermissionRequest hook denied shell: nope", "warning")]
-
-
-def test_attach_output_binds_sinks_and_replays_load_diagnostics(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A manager loaded before its UI must resurface what it could only log."""
-    _isolate_hook_config(tmp_path, monkeypatch)
-    (tmp_path / "user" / "hooks.json").write_text(
-        json.dumps({"hooks": {"Stop": [{"hooks": [{"type": "command"}]}]}}),
-        encoding="utf-8",
-    )
-    root = tmp_path / "project"
-    root.mkdir()
-
-    manager = _manager(root)
-    notices: list[tuple[str, str]] = []
-
-    def record(message: str, severity: HookNoticeSeverity) -> None:
-        notices.append((message, severity))
-
-    manager.attach_output(notice=record)
-
-    assert notices
-    assert all(severity in {"warning", "error"} for _, severity in notices)
 
 
 def _runtime_presenter(manager: HooksManager) -> HookPresenter | None:

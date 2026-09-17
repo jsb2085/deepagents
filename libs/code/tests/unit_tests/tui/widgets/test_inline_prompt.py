@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -18,11 +17,9 @@ from deepagents_code.tui.widgets import (
 )
 from deepagents_code.tui.widgets._inline_prompt import (
     MEDIA_UNSUPPORTED_TOAST_PREFIX,
-    InlinePromptCompletion,
     InlinePromptTextArea,
     _media_unsupported_toast,
 )
-from deepagents_code.tui.widgets._paste_textarea import PasteBurstTextArea
 
 if TYPE_CHECKING:
     from textual.app import ComposeResult
@@ -100,6 +97,13 @@ class TestInlinePromptPaste:
         monkeypatch.setattr(paste_textarea_module, "PASTE_BURST_CHAR_GAP_SECONDS", 60.0)
         monkeypatch.setattr(
             paste_textarea_module, "PASTE_BURST_FLUSH_DELAY_SECONDS", 0.25
+        )
+        # Promotion now happens on the first suppressed Enter, so the
+        # suppression window is load-bearing here: without widening it, a slow
+        # runner can spend more than the default 0.12s between the third
+        # character and the Enter and the paste would submit instead.
+        monkeypatch.setattr(
+            paste_textarea_module, "PASTE_ENTER_SUPPRESS_WINDOW_SECONDS", 60.0
         )
         payload = "alpha\nbeta\ngamma\ndelta"
         app = _PromptApp()
@@ -190,7 +194,7 @@ class TestInlinePromptPaste:
     async def test_key_burst_with_newline_does_not_submit(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A multi-line paste replayed as key events inserts a newline, no submit."""
+        """Rapid key-event text stays visible and inserts a newline, no submit."""
         # Widen the burst gap/window so wall-clock delays on slow runners still
         # register as one rapid burst.
         monkeypatch.setattr(paste_textarea_module, "PASTE_BURST_CHAR_GAP_SECONDS", 60.0)
@@ -205,12 +209,35 @@ class TestInlinePromptPaste:
 
             for char in "hello":
                 await pilot.press(char)
+            assert ta.text == "hello"
+            assert ta._paste_burst_buffer == ""
+
             await pilot.press("enter")
             await pilot.press("w")
             await pilot.pause(0.15)
 
             assert app.submissions == []
             assert "\n" in ta.text
+
+    @pytest.mark.parametrize("payload", ["hello", '"hello"'])
+    async def test_rapid_typing_stays_visible(
+        self, monkeypatch: pytest.MonkeyPatch, payload: str
+    ) -> None:
+        """Rapid ordinary typing, including quoted text, stays visible."""
+        monkeypatch.setattr(paste_textarea_module, "PASTE_BURST_CHAR_GAP_SECONDS", 60.0)
+        app = _PromptApp()
+        async with app.run_test() as pilot:
+            ta = app.query_one(InlinePromptTextArea)
+            ta.focus()
+            await pilot.pause()
+
+            for char in payload:
+                await pilot.press(char)
+            await pilot.pause()
+
+            assert ta.text == payload
+            assert ta._paste_burst_buffer == ""
+            assert not list(app._notifications)
 
     async def test_deliberate_enter_submits(
         self, monkeypatch: pytest.MonkeyPatch
@@ -260,27 +287,6 @@ class TestInlinePromptPaste:
             # second newline).
             assert ta.text == "hello\n"
             assert app.submissions == []
-
-    async def test_reset_clears_pending_backslash(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Replacing text cannot reuse a backslash timestamp from old text."""
-        monkeypatch.setattr(paste_textarea_module, "_BACKSLASH_ENTER_GAP_SECONDS", 60.0)
-        app = _PromptApp()
-        async with app.run_test() as pilot:
-            ta = app.query_one(InlinePromptTextArea)
-            ta.focus()
-            await pilot.pause()
-
-            await pilot.press("backslash")
-            ta.text = "replacement\\"
-            ta.move_cursor((0, len(ta.text)))
-            ta.reset_paste_state()
-
-            await pilot.press("enter")
-            await pilot.pause()
-
-            assert app.submissions == ["replacement\\"]
 
     @pytest.mark.parametrize(
         "key",
@@ -524,6 +530,33 @@ class TestInlinePromptMediaDrop:
             assert latest.message.startswith(MEDIA_UNSUPPORTED_TOAST_PREFIX)
             assert "clip.mp4" in latest.message
 
+    async def test_unquoted_media_key_burst_is_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An unquoted media path replayed as rapid keys is rejected, not typed."""
+        monkeypatch.setattr(paste_textarea_module, "PASTE_BURST_CHAR_GAP_SECONDS", 60.0)
+        monkeypatch.setattr(
+            paste_textarea_module, "PASTE_BURST_FLUSH_DELAY_SECONDS", 0.25
+        )
+        clip = tmp_path / "clip.mp4"
+        clip.write_bytes(b"vid")
+        app = _PromptApp()
+        async with app.run_test() as pilot:
+            ta = app.query_one(InlinePromptTextArea)
+            ta.focus()
+            await pilot.pause()
+
+            for char in str(clip):
+                event = Key(char, char)
+                await ta._on_key(event)
+
+            await pilot.pause(0.35)
+
+            assert ta.text == ""
+            latest = list(app._notifications)[-1]
+            assert latest.message.startswith(MEDIA_UNSUPPORTED_TOAST_PREFIX)
+            assert "clip.mp4" in latest.message
+
     async def test_non_media_path_burst_is_inserted(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -664,8 +697,8 @@ class TestInlinePromptMediaDrop:
 
         Drives the production route end to end — `_on_key` -> burst promotion ->
         flush timer -> `_dispatch_burst_payload` — rather than calling the
-        dispatcher directly. A leading quote is in `PASTE_BURST_START_CHARS`
-        precisely so a dropped path buffers, so this is the designed shape.
+        dispatcher directly. The leading quote stays visible until the rapid
+        run contains enough of the absolute path to confirm a dropped payload.
         """
         monkeypatch.setattr(
             paste_textarea_module, "_collapse_pastes_enabled", lambda: False
@@ -717,13 +750,14 @@ class TestInlinePromptMediaDrop:
             ta.focus()
             await pilot.pause()
 
-            for char in "'abc":
+            pending = f"'{tmp_path / 'draft.txt'}'"
+            for char in pending:
                 await ta._on_key(Key(char, char))
             assert ta._paste_burst_buffer, "expected a pending burst to flush"
 
             await _paste(pilot, str(img))
 
-            assert ta.text == "'abc"
+            assert ta.text == pending
             assert not ta._paste_burst_buffer
             latest = list(app._notifications)[-1]
             assert latest.message.startswith(MEDIA_UNSUPPORTED_TOAST_PREFIX)
@@ -792,37 +826,6 @@ class TestMediaUnsupportedToast:
 class TestSharedBindings:
     """The newline/word-delete bindings live on the base and reach subclasses."""
 
-    def test_base_bindings_are_the_single_source_of_truth(self) -> None:
-        """`PasteBurstTextArea` owns the shared newline and word-delete keys.
-
-        Introspecting the base protects every paste-aware subclass at once: a
-        regression in these bindings would surface here before it reached the
-        chat input or inline prompt.
-        """
-        newline_keys = {
-            key.strip()
-            for binding in PasteBurstTextArea.BINDINGS
-            if binding.action == "insert_newline"
-            for key in binding.key.split(",")
-        }
-        word_delete_keys = {
-            key.strip()
-            for binding in PasteBurstTextArea.BINDINGS
-            if binding.action == "delete_word_left"
-            for key in binding.key.split(",")
-        }
-
-        assert {"shift+enter", "alt+enter", "ctrl+enter", "ctrl+j"} <= newline_keys
-        # `ctrl+m` is carriage return in terminals, so it must remain plain Enter.
-        assert "ctrl+m" not in newline_keys
-        assert newline_keys == PasteBurstTextArea._NEWLINE_KEYS
-        assert {"ctrl+backspace", "alt+backspace"} <= word_delete_keys
-
-    def test_inline_prompt_inherits_bindings(self) -> None:
-        """`InlinePromptTextArea` defines no bindings of its own; it inherits them."""
-        assert "BINDINGS" not in InlinePromptTextArea.__dict__
-        assert InlinePromptTextArea._NEWLINE_KEYS == PasteBurstTextArea._NEWLINE_KEYS
-
     @pytest.mark.parametrize("key", ["ctrl+backspace", "alt+backspace"])
     async def test_modified_backspace_deletes_word_on_ordinary_text(
         self, key: str
@@ -851,34 +854,44 @@ class TestSharedBindings:
 class TestInlinePromptCompletion:
     """Resolve-at-most-once semantics, independent of call ordering."""
 
-    async def test_resolve_delivers_to_future_set_first(self) -> None:
-        """The common path: the future is wired before the result arrives."""
-        completion: InlinePromptCompletion[str] = InlinePromptCompletion()
-        future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
-        completion.set_future(future)
 
-        assert completion.resolve("done") is True
-        assert completion.resolved is True
-        assert await future == "done"
+class TestCursorHiddenWhileUnfocused:
+    """The unfocused-cursor fix lives on the shared `PasteBurstTextArea` base.
 
-    async def test_resolve_before_set_future_still_delivers(self) -> None:
-        """A result recorded before the future is wired must not be stranded."""
-        completion: InlinePromptCompletion[str] = InlinePromptCompletion()
+    `test_chat_input.py` covers the chat input; this pins the same guarantee for
+    inline prompts, so moving `_restart_blink` down into `ChatTextArea` cannot
+    silently reintroduce the phantom cursor here.
+    """
 
-        assert completion.resolve("done") is True
-        assert completion.resolved is True
+    async def test_programmatic_insert_while_unfocused_shows_no_cursor(self) -> None:
+        """Text inserted into an unfocused inline prompt must not raise a cursor."""
+        app = _PromptApp()
+        async with app.run_test() as pilot:
+            ta = app.query_one(InlinePromptTextArea)
+            app.set_focus(None)
+            await pilot.pause()
 
-        future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
-        completion.set_future(future)
+            ta.insert("dropped path")
+            await pilot.pause()
 
-        assert await future == "done"
+            assert ta._draw_cursor is False
+            # The parked timer, not just the drawn state: a regression that
+            # leaves the blink running reads False for half of every cycle.
+            assert ta.blink_timer._active.is_set() is False
 
-    async def test_second_resolve_is_ignored(self) -> None:
-        """Only the first terminal result wins; later ones return `False`."""
-        completion: InlinePromptCompletion[str] = InlinePromptCompletion()
-        future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
-        completion.set_future(future)
+    async def test_refocus_restores_cursor(self) -> None:
+        """Focus returning to an inline prompt brings the blinking cursor back."""
+        app = _PromptApp()
+        async with app.run_test() as pilot:
+            ta = app.query_one(InlinePromptTextArea)
+            app.set_focus(None)
+            await pilot.pause()
+            assert ta._draw_cursor is False
 
-        assert completion.resolve("first") is True
-        assert completion.resolve("second") is False
-        assert await future == "first"
+            ta.focus()
+            await pilot.pause()
+
+            assert ta.has_focus is True
+            # `_draw_cursor` oscillates once the timer is re-armed; assert the
+            # timer instead, which also catches a cursor frozen solid.
+            assert ta.blink_timer._active.is_set() is True

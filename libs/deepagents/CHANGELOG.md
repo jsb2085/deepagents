@@ -2,6 +2,125 @@
 
 # Deep Agents Changelog
 
+## [0.7.15](https://github.com/langchain-ai/deepagents/compare/deepagents==0.7.14...deepagents==0.7.15) (2026-09-16)
+
+### Bug Fixes
+
+- Gave tool result offloads without IDs unique paths to avoid collisions. ([#6316](https://github.com/langchain-ai/deepagents/pull/6316))
+- Propagated subagent state keys for provided subagent middleware. ([#5553](https://github.com/langchain-ai/deepagents/pull/5553))
+- Allow colons in model profile keys. ([#6334](https://github.com/langchain-ai/deepagents/pull/6334))
+- Required a real Nemotron task transition for built-in profile. ([#6296](https://github.com/langchain-ai/deepagents/pull/6296))
+
+## [0.7.14](https://github.com/langchain-ai/deepagents/compare/deepagents==0.7.13...deepagents==0.7.14) (2026-09-13)
+
+### Features
+
+- Updated `read_file` output formatting. ([#5648](https://github.com/langchain-ai/deepagents/pull/5648))
+
+### Bug Fixes
+
+- Bounded compaction recovery and added validation for input budgets. ([#6267](https://github.com/langchain-ai/deepagents/pull/6267))
+- Fixed invalid partial tool-call patching and updated imputed `ToolMessage` content in `PatchToolCallsMiddleware`. ([#5430](https://github.com/langchain-ai/deepagents/pull/5430), [#6277](https://github.com/langchain-ai/deepagents/pull/6277))
+- Rejected empty `old_string` values in `edit_file` paths. ([#5747](https://github.com/langchain-ai/deepagents/pull/5747))
+- Fixed character counting in `ls` and `glob` output. ([#6204](https://github.com/langchain-ai/deepagents/pull/6204))
+- Improved `glob` tool results to suggest populating `path` when appropriate. ([#6199](https://github.com/langchain-ai/deepagents/pull/6199))
+- Prevented blank read windows from triggering the empty-file warning. ([#5050](https://github.com/langchain-ai/deepagents/pull/5050))
+
+## [0.7.13](https://github.com/langchain-ai/deepagents/compare/deepagents==0.7.12...deepagents==0.7.13) (2026-09-02)
+
+### Bug Fixes
+
+- Renamed the SDK subagent mode from `handoff` to `isolated` ([#6030](https://github.com/langchain-ai/deepagents/issues/6030)).
+
+## [0.7.12](https://github.com/langchain-ai/deepagents/compare/deepagents==0.7.11...deepagents==0.7.12) (2026-09-01)
+
+### Features
+
+- Added subagent conversation forking in the SDK ([#5714](https://github.com/langchain-ai/deepagents/issues/5714)).
+
+### Bug Fixes
+
+- Fixed glob sorting to tolerate missing `modified_at` values in the SDK ([#4376](https://github.com/langchain-ai/deepagents/issues/4376)).
+
+## [0.7.11](https://github.com/langchain-ai/deepagents/compare/deepagents==0.7.10...deepagents==0.7.11) (2026-08-28)
+
+### Features
+
+- Added SDK integration hooks for rubric graders ([#5874](https://github.com/langchain-ai/deepagents/issues/5874))
+
+## [0.7.10](https://github.com/langchain-ai/deepagents/compare/deepagents==0.7.9...deepagents==0.7.10) (2026-08-28)
+
+### Bug Fixes
+
+- Prevent local shell commands from stealing TUI input ([#5873](https://github.com/langchain-ai/deepagents/issues/5873))
+- Surface sandbox glob failures instead of reporting no matches ([#5566](https://github.com/langchain-ai/deepagents/issues/5566))
+
+## [0.7.9](https://github.com/langchain-ai/deepagents/compare/deepagents==0.7.8...deepagents==0.7.9) (2026-08-25)
+
+### Features
+
+- Disabled tracing inputs on middleware. ([#5377](https://github.com/langchain-ai/deepagents/issues/5377))
+
+### Bug fixes
+
+- Exclude tools from execution when `excluded_tools` is set in harness profiles. ([#5809](https://github.com/langchain-ai/deepagents/issues/5809))
+- Enforce full criterion coverage in `RubricMiddleware`. ([#5234](https://github.com/langchain-ai/deepagents/issues/5234))
+- Clarified zero execute-timeout semantics. ([#5752](https://github.com/langchain-ai/deepagents/issues/5752))
+
+## [0.7.8](https://github.com/langchain-ai/deepagents/compare/deepagents==0.7.7...deepagents==0.7.8) (2026-08-20)
+
+### Bug Fixes
+
+- Add `files` state only for state backends ([#5643](https://github.com/langchain-ai/deepagents/issues/5643))
+
+## [0.7.7](https://github.com/langchain-ai/deepagents/compare/deepagents==0.7.6...deepagents==0.7.7) (2026-08-18)
+
+### Bug fixes
+
+- Batched concurrent `ContextHubBackend` mutations to improve SDK backend behavior ([#5471](https://github.com/langchain-ai/deepagents/issues/5471)) ([822f7c9](https://github.com/langchain-ai/deepagents/commit/822f7c9b02e6d99bdb46b5545bb2543783c01769)).
+- Made `BackendProtocol.glob` recursive for bare patterns ([#5026](https://github.com/langchain-ai/deepagents/issues/5026)) ([32f35d5](https://github.com/langchain-ai/deepagents/commit/32f35d5e01f460549c10365eb569978909f5c969)).
+
+## [0.7.6](https://github.com/langchain-ai/deepagents/compare/deepagents==0.7.5...deepagents==0.7.6) (2026-08-13)
+
+### Bug Fixes
+
+- Offload conversation history to a distinct session ID when summarizing. ([#5470](https://github.com/langchain-ai/deepagents/issues/5470))
+
+## [0.7.5](https://github.com/langchain-ai/deepagents/compare/deepagents==0.7.4...deepagents==0.7.5) (2026-08-06)
+
+### Bug Fixes
+
+- Identify SDK provider classes that support files. ([#5326](https://github.com/langchain-ai/deepagents/issues/5326))
+
+## [0.7.4](https://github.com/langchain-ai/deepagents/compare/deepagents==0.7.3...deepagents==0.7.4) (2026-08-04)
+
+### Features
+
+- Exposed the `execute` exit code in SDK artifacts. ([#5300](https://github.com/langchain-ai/deepagents/issues/5300))
+
+## [0.7.3](https://github.com/langchain-ai/deepagents/compare/deepagents==0.7.2...deepagents==0.7.3) (2026-08-03)
+
+### Bug Fixes
+
+- Fixed exact-file `delete` target resolution in the SDK using first-match-wins behavior. ([#5229](https://github.com/langchain-ai/deepagents/issues/5229))
+
+## [0.7.2](https://github.com/langchain-ai/deepagents/compare/deepagents==0.7.1...deepagents==0.7.2) (2026-08-03)
+
+### Bug Fixes
+
+- Scrub multimodal content blocks that are unsupported by the model's profile. ([#5194](https://github.com/langchain-ai/deepagents/issues/5194))
+
+## [0.7.1](https://github.com/langchain-ai/deepagents/compare/deepagents==0.7.0...deepagents==0.7.1) (2026-07-30)
+
+### Features
+
+- Mark editable installs in `lc_versions.deepagents` ([#5158](https://github.com/langchain-ai/deepagents/issues/5158))
+
+### Bug Fixes
+
+- Return an empty read for degenerate `read_file` windows ([#5184](https://github.com/langchain-ai/deepagents/issues/5184))
+- Warn instead of silently skipping unresolved state schemas ([#5166](https://github.com/langchain-ai/deepagents/issues/5166))
+
 ## [0.7.0](https://github.com/langchain-ai/deepagents/compare/deepagents==0.6.12...deepagents==0.7.0) (2026-07-29)
 
 See [the docs](https://docs.langchain.com/oss/python/releases/changelog#deepagents-v0-7-0) for curated release notes.

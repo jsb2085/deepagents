@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from packaging.specifiers import SpecifierSet
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-BYPASS_LABEL = "release-deps: acknowledged"
+BYPASS_LABEL = "ci:ack-release-deps"
 COMMENT_MARKER = "<!-- dep-freshness-check -->"
 PRERELEASE_POLICY_ENV = "DEP_FRESHNESS_PRERELEASE_POLICY"
 MAX_FETCH_WORKERS = 8
@@ -205,19 +205,20 @@ def _release_is_available(files: object) -> bool:
     )
 
 
-def latest_pypi_version(
+def available_pypi_versions(
     payload: Mapping[str, object], *, include_prereleases: bool
-) -> Version | None:
-    """Select the newest usable PyPI release from a project JSON response.
+) -> list[Version]:
+    """Collect every usable release from a PyPI project JSON response.
 
-    Empty releases and releases whose every file is yanked are ignored.
+    Empty releases and releases whose every file is yanked are ignored. A
+    partially-yanked release is still considered usable.
 
     Args:
         payload: Decoded PyPI project JSON.
         include_prereleases: Whether pre/dev releases are eligible.
 
     Returns:
-        The greatest eligible PEP 440 version, or `None` when none is available.
+        Every eligible PEP 440 version, in unspecified order.
 
     Raises:
         TypeError: If the payload's `releases` value is missing or not a mapping.
@@ -239,7 +240,31 @@ def latest_pypi_version(
         if version.is_prerelease and not include_prereleases:
             continue
         candidates.append(version)
-    return max(candidates, default=None)
+    return candidates
+
+
+def latest_pypi_version(
+    payload: Mapping[str, object], *, include_prereleases: bool
+) -> Version | None:
+    """Select the newest usable PyPI release from a project JSON response.
+
+    Empty releases and releases whose every file is yanked are ignored.
+
+    Args:
+        payload: Decoded PyPI project JSON.
+        include_prereleases: Whether pre/dev releases are eligible.
+
+    Returns:
+        The greatest eligible PEP 440 version, or `None` when none is available.
+
+    Raises:
+        TypeError: If the payload's `releases` value is missing or not a mapping.
+
+    """
+    return max(
+        available_pypi_versions(payload, include_prereleases=include_prereleases),
+        default=None,
+    )
 
 
 def _source_is_local(source: object) -> bool:
