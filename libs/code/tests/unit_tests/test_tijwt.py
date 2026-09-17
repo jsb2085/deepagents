@@ -64,7 +64,7 @@ class TestTIJWTManager:
         if monkeypatch is not None:
             monkeypatch.setattr(manager, "_fetch_fresh_token", _fake)
         else:
-            manager._fetch_fresh_token = _fake  # noqa: SLF001 # test double
+            manager._fetch_fresh_token = _fake  # ty: ignore[invalid-assignment]
         return manager, calls
 
     def test_caches_token_until_threshold(
@@ -90,9 +90,7 @@ class TestTIJWTManager:
         assert len(calls) == 2
 
     def test_force_refresh_and_clear(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        manager, calls = self._manager_with_fake_fetch(
-            ["a", "b", "c"], monkeypatch
-        )
+        manager, calls = self._manager_with_fake_fetch(["a", "b", "c"], monkeypatch)
         assert manager.get_token() == "a"
         assert manager.force_refresh() == "b"
         assert len(calls) == 2
@@ -107,7 +105,7 @@ class TestTIJWTManager:
             stdout = "   \n"
 
         monkeypatch.setattr(
-            tijwt.subprocess, "run", lambda *args, **kwargs: _Result()
+            tijwt.subprocess, "run", lambda *_args, **_kwargs: _Result()
         )
         with pytest.raises(TIJWTError):
             manager.get_token()
@@ -115,16 +113,14 @@ class TestTIJWTManager:
     def test_fetcher_failure_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         manager = TIJWTManager(fetch_command=("fake",))
 
-        def _boom(*args: object, **kwargs: object) -> object:
+        def _boom(*_args: object, **_kwargs: object) -> object:
             raise subprocess.CalledProcessError(1, "fake")
 
         monkeypatch.setattr(tijwt.subprocess, "run", _boom)
         with pytest.raises(TIJWTError):
             manager.get_token()
 
-    def test_concurrent_calls_fetch_once(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_concurrent_calls_fetch_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
         manager, calls = self._manager_with_fake_fetch(["tok"], monkeypatch)
         results: list[str] = []
 
@@ -146,24 +142,18 @@ class TestResolveAuthMode:
     def test_default_is_api(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("DEEPAGENTS_CODE_AUTH_MODE", raising=False)
         monkeypatch.delenv("TI_AUTH_MODE", raising=False)
-        monkeypatch.setattr(
-            "deepagents_code.config_manifest.load_config_toml", lambda: {}
-        )
+        monkeypatch.setattr("deepagents_code.config_manifest.load_config_toml", dict)
         assert tijwt.resolve_auth_mode() == "api"
 
     def test_cli_wins_over_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("DEEPAGENTS_CODE_AUTH_MODE", "tijwt")
-        monkeypatch.setattr(
-            "deepagents_code.config_manifest.load_config_toml", lambda: {}
-        )
+        monkeypatch.setattr("deepagents_code.config_manifest.load_config_toml", dict)
         assert tijwt.resolve_auth_mode(cli_value="api") == "api"
 
     def test_env_fallback_ti_auth_mode(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("DEEPAGENTS_CODE_AUTH_MODE", raising=False)
         monkeypatch.setenv("TI_AUTH_MODE", "kerberos")
-        monkeypatch.setattr(
-            "deepagents_code.config_manifest.load_config_toml", lambda: {}
-        )
+        monkeypatch.setattr("deepagents_code.config_manifest.load_config_toml", dict)
         assert tijwt.resolve_auth_mode() == "tijwt"
 
     def test_config_toml_used(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -196,7 +186,7 @@ class TestModelWiring:
             get_provider_auth_status,
         )
 
-        monkeypatch.setattr(ModelConfig, "load", classmethod(lambda cls: cls()))
+        monkeypatch.setattr(ModelConfig, "load", classmethod(lambda _cls: _cls()))
         status = get_provider_auth_status("openai")
         assert status.state is ProviderAuthState.CONFIGURED
         assert status.as_legacy_bool() is True
@@ -213,15 +203,20 @@ class TestModelWiring:
             def get_effective_kwargs(
                 self, provider: str, *, model_name: str | None = None
             ) -> dict[str, Any]:
+                _ = (provider, model_name)
                 return {}
 
             def get_base_url(self, provider: str) -> str | None:
+                _ = provider
                 return None
 
             def get_api_key_env(self, provider: str) -> str | None:
+                _ = provider
                 return None
 
-        monkeypatch.setattr(ModelConfig, "load", classmethod(lambda cls: _FakeConfig()))
+        monkeypatch.setattr(
+            ModelConfig, "load", classmethod(lambda _cls: _FakeConfig())
+        )
         kwargs = _config._get_provider_kwargs("openai", model_name="gpt-5.5")
         assert kwargs["api_key"] == "jwt-123"
 
@@ -237,15 +232,20 @@ class TestModelWiring:
             def get_effective_kwargs(
                 self, provider: str, *, model_name: str | None = None
             ) -> dict[str, Any]:
+                _ = (provider, model_name)
                 return {}
 
             def get_base_url(self, provider: str) -> str | None:
+                _ = provider
                 return None
 
             def get_api_key_env(self, provider: str) -> str | None:
+                _ = provider
                 return None
 
-        monkeypatch.setattr(ModelConfig, "load", classmethod(lambda cls: _FakeConfig()))
+        monkeypatch.setattr(
+            ModelConfig, "load", classmethod(lambda _cls: _FakeConfig())
+        )
         kwargs = _config._get_provider_kwargs("ollama")
         headers = kwargs["client_kwargs"]["headers"]
         assert headers["Authorization"] == "Bearer jwt-ollama"
@@ -259,33 +259,25 @@ class TestGatewayResolution:
     ) -> None:
         monkeypatch.delenv("DEEPAGENTS_CODE_TI_BASE_URL", raising=False)
         monkeypatch.delenv("TI_BASE_URL", raising=False)
-        monkeypatch.setattr(
-            "deepagents_code.config_manifest.load_config_toml", lambda: {}
-        )
+        monkeypatch.setattr("deepagents_code.config_manifest.load_config_toml", dict)
         assert tijwt.resolve_base_url() == tijwt.TI_GATEWAY_DEFAULT_BASE_URL
 
     def test_base_url_env_wins(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("TI_BASE_URL", "https://gateway.example/v1")
         assert tijwt.resolve_base_url() == "https://gateway.example/v1"
 
-    def test_team_id_prefers_litellm_env(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_team_id_prefers_litellm_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("DEEPAGENTS_CODE_TI_TEAM_ID", raising=False)
         monkeypatch.delenv("TI_TEAM_ID", raising=False)
         monkeypatch.setenv("LITELLM_TEAM_ID", "MY_TEAM")
-        monkeypatch.setattr(
-            "deepagents_code.config_manifest.load_config_toml", lambda: {}
-        )
+        monkeypatch.setattr("deepagents_code.config_manifest.load_config_toml", dict)
         assert tijwt.resolve_team_id() == "MY_TEAM"
 
     def test_team_id_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("DEEPAGENTS_CODE_TI_TEAM_ID", raising=False)
         monkeypatch.delenv("TI_TEAM_ID", raising=False)
         monkeypatch.delenv("LITELLM_TEAM_ID", raising=False)
-        monkeypatch.setattr(
-            "deepagents_code.config_manifest.load_config_toml", lambda: {}
-        )
+        monkeypatch.setattr("deepagents_code.config_manifest.load_config_toml", dict)
         assert tijwt.resolve_team_id() == tijwt.TI_DEFAULT_TEAM_ID
 
     def test_team_headers_empty_in_api_mode(
@@ -311,9 +303,7 @@ class TestGatewayKwargs:
         monkeypatch.delenv("DEEPAGENTS_CODE_TI_TEAM_ID", raising=False)
         monkeypatch.delenv("TI_TEAM_ID", raising=False)
         monkeypatch.delenv("LITELLM_TEAM_ID", raising=False)
-        monkeypatch.setattr(
-            "deepagents_code.config_manifest.load_config_toml", lambda: {}
-        )
+        monkeypatch.setattr("deepagents_code.config_manifest.load_config_toml", dict)
         from deepagents_code import config as _config
         from deepagents_code.model_config import ModelConfig
 
@@ -321,12 +311,16 @@ class TestGatewayKwargs:
             def get_effective_kwargs(
                 self, provider: str, *, model_name: str | None = None
             ) -> dict[str, Any]:
+                _ = (provider, model_name)
                 return {"base_url": base_url} if base_url else {}
 
             def get_api_key_env(self, provider: str) -> str | None:
+                _ = provider
                 return None
 
-        monkeypatch.setattr(ModelConfig, "load", classmethod(lambda cls: _FakeConfig()))
+        monkeypatch.setattr(
+            ModelConfig, "load", classmethod(lambda _cls: _FakeConfig())
+        )
         return _config._get_provider_kwargs(provider)
 
     def test_gateway_base_url_and_headers(
@@ -354,9 +348,7 @@ class TestGatewayKwargs:
         monkeypatch.delenv("DEEPAGENTS_CODE_TI_TEAM_ID", raising=False)
         monkeypatch.delenv("TI_TEAM_ID", raising=False)
         monkeypatch.delenv("LITELLM_TEAM_ID", raising=False)
-        monkeypatch.setattr(
-            "deepagents_code.config_manifest.load_config_toml", lambda: {}
-        )
+        monkeypatch.setattr("deepagents_code.config_manifest.load_config_toml", dict)
         from deepagents_code import config as _config
 
         out = _config._apply_tijwt_auth_kwargs(
@@ -368,8 +360,7 @@ class TestGatewayKwargs:
         )
         assert out["default_headers"]["x-other"] == "1"
         assert (
-            out["default_headers"][tijwt.TI_TEAM_ID_HEADER]
-            == tijwt.TI_DEFAULT_TEAM_ID
+            out["default_headers"][tijwt.TI_TEAM_ID_HEADER] == tijwt.TI_DEFAULT_TEAM_ID
         )
         assert out["base_url"] == "https://custom.example/v1"
 
@@ -383,32 +374,22 @@ class TestVerifySsl:
 
     def test_default_verifies(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._clear_env(monkeypatch)
-        monkeypatch.setattr(
-            "deepagents_code.config_manifest.load_config_toml", lambda: {}
-        )
+        monkeypatch.setattr("deepagents_code.config_manifest.load_config_toml", dict)
         assert tijwt.resolve_verify_ssl() is True
 
     @pytest.mark.parametrize("raw", ["0", "false", "no", "off"])
-    def test_falsy_disables(
-        self, monkeypatch: pytest.MonkeyPatch, raw: str
-    ) -> None:
+    def test_falsy_disables(self, monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
         monkeypatch.setenv("TI_VERIFY_SSL", raw)
         assert tijwt.resolve_verify_ssl() is False
 
     @pytest.mark.parametrize("raw", ["1", "true", "yes", "on"])
-    def test_truthy_enables(
-        self, monkeypatch: pytest.MonkeyPatch, raw: str
-    ) -> None:
+    def test_truthy_enables(self, monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
         monkeypatch.setenv("TI_VERIFY_SSL", raw)
         assert tijwt.resolve_verify_ssl() is True
 
-    def test_unrecognized_falls_through(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_unrecognized_falls_through(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("TI_VERIFY_SSL", "maybe")
-        monkeypatch.setattr(
-            "deepagents_code.config_manifest.load_config_toml", lambda: {}
-        )
+        monkeypatch.setattr("deepagents_code.config_manifest.load_config_toml", dict)
         assert tijwt.resolve_verify_ssl() is True
 
     def test_config_toml_used(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -419,24 +400,18 @@ class TestVerifySsl:
         )
         assert tijwt.resolve_verify_ssl() is False
 
-    def test_verify_on_adds_no_clients(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_verify_on_adds_no_clients(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("DEEPAGENTS_CODE_AUTH_MODE", "tijwt")
         monkeypatch.setattr(tijwt, "get_tijwt_token", lambda: "jwt-xyz")
         self._clear_env(monkeypatch)
-        monkeypatch.setattr(
-            "deepagents_code.config_manifest.load_config_toml", lambda: {}
-        )
+        monkeypatch.setattr("deepagents_code.config_manifest.load_config_toml", dict)
         from deepagents_code import config as _config
 
         out = _config._apply_tijwt_auth_kwargs("openai", {})
         assert "http_client" not in out
         assert "http_async_client" not in out
 
-    def test_verify_off_injects_clients(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_verify_off_injects_clients(self, monkeypatch: pytest.MonkeyPatch) -> None:
         httpx = pytest.importorskip("httpx")
         monkeypatch.setenv("DEEPAGENTS_CODE_AUTH_MODE", "tijwt")
         monkeypatch.setenv("TI_VERIFY_SSL", "false")
@@ -464,9 +439,7 @@ class TestVerifySsl:
         from deepagents_code import config as _config
 
         sentinel = object()
-        out = _config._apply_tijwt_auth_kwargs(
-            "openai", {"http_client": sentinel}
-        )
+        out = _config._apply_tijwt_auth_kwargs("openai", {"http_client": sentinel})
         assert out["http_client"] is sentinel
         assert "http_async_client" in out
 

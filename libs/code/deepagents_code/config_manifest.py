@@ -2429,9 +2429,7 @@ _STATIC_OPTIONS: tuple[ConfigOption[object], ...] = (
     ConfigOption(
         key="models.ti_team_id",
         group="Models",
-        summary=(
-            "LiteLLM team ID sent as 'x-litellm-team-id' in 'tijwt' auth mode."
-        ),
+        summary=("LiteLLM team ID sent as 'x-litellm-team-id' in 'tijwt' auth mode."),
         kind=OptionKind.STR,
         env_var=_env_vars.TI_TEAM_ID,
         fallback_env_vars=("TI_TEAM_ID", "LITELLM_TEAM_ID"),

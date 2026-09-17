@@ -2745,7 +2745,7 @@ def get_provider_auth_status(provider: str) -> ProviderAuthStatus:
             )
     except ImportError:
         pass
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         from deepagents_code.tijwt import TIJWTError as _TIJWTError
 
         if isinstance(exc, _TIJWTError):

@@ -158,9 +158,7 @@ def show_help() -> None:
     )
     console.print("  -a, --agent NAME           Agent to use")
     console.print("  -M, --model MODEL          Model to use (e.g., gpt-5.5)")
-    console.print(
-        "  --auth-mode MODE           Auth mode: 'api' or 'tijwt'/'kerberos' (Kerberos JWT)"
-    )
+    console.print("  --auth-mode MODE           Auth mode: 'api' or 'tijwt'/'kerberos'")
     console.print(
         "  --model-params JSON        Extra model kwargs (e.g., '{\"temperature\": 0.7}')"  # noqa: E501
     )

@@ -5529,11 +5529,11 @@ def cli_main() -> None:
         # subprocess (which inherits os.environ) resolve TI JWT auth.
         if getattr(args, "auth_mode", None):
             from deepagents_code import _env_vars as _auth_mode_env
-            from deepagents_code.tijwt import normalize_auth_mode
+            from deepagents_code.tijwt import TIJWTError, normalize_auth_mode
 
             try:
                 normalized = normalize_auth_mode(args.auth_mode)
-            except Exception as exc:
+            except TIJWTError as exc:
                 console.print(f"[bold red]Error:[/bold red] {exc}")
                 sys.exit(2)
             if normalized is not None:

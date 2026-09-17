@@ -22,7 +22,7 @@ from __future__ import annotations
 import logging
 import os
 import shlex
-import subprocess
+import subprocess  # noqa: S404  # argv-only token fetcher, never a shell
 import threading
 import time
 from dataclasses import dataclass
@@ -119,7 +119,7 @@ class TIJWTManager:
             TIJWTError: If the fetcher fails, times out, or returns empty output.
         """
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # noqa: S603  # argv list from config, no shell
                 list(self.fetch_command),
                 capture_output=True,
                 text=True,
@@ -143,9 +143,6 @@ class TIJWTManager:
 
         Returns:
             A valid bearer token string.
-
-        Raises:
-            TIJWTError: If a required refresh fails.
         """
         with self._lock:
             now = time.time()
@@ -164,9 +161,6 @@ class TIJWTManager:
 
         Returns:
             The fresh token string.
-
-        Raises:
-            TIJWTError: If the fetch fails; the previous cache is cleared.
         """
         with self._lock:
             self._current_token = None
@@ -357,8 +351,7 @@ def resolve_verify_ssl() -> bool:
                 return configured
             if configured is not None:
                 logger.warning(
-                    "Ignoring [models].ti_verify_ssl=%r in config.toml"
-                    " (expected bool)",
+                    "Ignoring [models].ti_verify_ssl=%r in config.toml (expected bool)",
                     configured,
                 )
     except Exception:
@@ -499,10 +492,7 @@ def is_tijwt_auth_mode(*, cli_value: str | None = None) -> bool:
     Returns:
         `True` when the resolved mode is `tijwt`.
     """
-    try:
-        return resolve_auth_mode(cli_value=cli_value) == TIJWT_AUTH_MODE
-    except TIJWTError:
-        raise
+    return resolve_auth_mode(cli_value=cli_value) == TIJWT_AUTH_MODE
 
 
 def get_manager() -> TIJWTManager:
@@ -530,8 +520,5 @@ def get_tijwt_token() -> str:
 
     Returns:
         A valid bearer token string.
-
-    Raises:
-        TIJWTError: If the token cannot be fetched.
     """
     return get_manager().get_token()

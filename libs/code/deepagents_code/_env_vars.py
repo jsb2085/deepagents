@@ -675,7 +675,7 @@ Defaults to `https://llmgateway.itg.ti.com/v1`. Also settable via
 env name. Only applies when no explicit provider `base_url` is configured.
 """
 
-TI_GET_TOKEN_CMD = "DEEPAGENTS_CODE_TI_GET_TOKEN_CMD"
+TI_GET_TOKEN_CMD = "DEEPAGENTS_CODE_TI_GET_TOKEN_CMD"  # noqa: S105  # env var name, not a secret
 """Token fetcher for `tijwt` auth mode, as a shell-split command string.
 
 Defaults to `node get-token.js` (Kerberos ticket -> JWT on stdout). Also
