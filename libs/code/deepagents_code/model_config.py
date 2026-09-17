@@ -1302,6 +1302,13 @@ timeout, which defers to the HTTP probe) -- is still re-probed (its empty
 result is not cached), so a later `ollama pull` is discovered without
 `/reload`. Cleared by `clear_caches()`."""
 _ollama_model_profiles_cache: dict[tuple[str, str], dict[str, Any]] = {}
+_ti_gateway_models_cache: dict[str, list[str]] = {}
+"""Gateway model IDs by base URL for `tijwt` auth mode.
+
+Keyed by the resolved gateway endpoint (trailing slash stripped). Only
+non-empty probes are cached — a failed probe (expired ticket, unreachable
+gateway) is retried on the next `get_available_models()` call so recovery
+needs no restart. Cleared by `clear_caches()`."""
 _profiles_cache: Mapping[str, ModelProfileEntry] | None = None
 _profiles_override_cache: tuple[int, Mapping[str, ModelProfileEntry]] | None = None
 
@@ -1319,6 +1326,7 @@ def clear_caches() -> None:
     _ollama_installed_models_cache.clear()
     _ollama_unreachable_endpoints.clear()
     _ollama_model_profiles_cache.clear()
+    _ti_gateway_models_cache.clear()
     _profiles_cache = None
     _profiles_override_cache = None
     # The thread config cache holds `[threads]` from the same file. Its read
@@ -1481,6 +1489,106 @@ def _profile_module_from_class_path(class_path: str) -> str | None:
     if not package_root:
         return None
     return f"{package_root}.data._profiles"
+
+
+def get_ti_gateway_models() -> list[str]:
+    """Return cached TI gateway model IDs for `tijwt` auth mode.
+
+    Probes `GET /v1/models` on first call per gateway endpoint and caches
+    non-empty results; failures yield `[]` without caching so the next call
+    retries. Returns `[]` immediately when `tijwt` mode is not active.
+
+    Returns:
+        Sorted gateway model IDs, or `[]` when unavailable.
+    """
+    from deepagents_code import tijwt as _tijwt
+
+    try:
+        if _tijwt.resolve_auth_mode() != _tijwt.TIJWT_AUTH_MODE:
+            return []
+        base_url = _tijwt.resolve_base_url()
+    except Exception:
+        logger.debug("TI gateway model merge skipped", exc_info=True)
+        return []
+    key = base_url.rstrip("/")
+    cached = _ti_gateway_models_cache.get(key)
+    if cached is not None:
+        return list(cached)
+    models = _tijwt.list_gateway_models()
+    if models:
+        _ti_gateway_models_cache[key] = models
+    return list(models)
+
+
+def get_ti_gateway_model_specs() -> list[str]:
+    """Return `provider:model` specs for TI gateway models.
+
+    Resolves the same target provider `_merge_ti_gateway_models` uses, so CLI
+    output and the `/model` selector agree on the displayed specs.
+
+    Returns:
+        Sorted `provider:model` specs, or `[]` when the gateway exposes none.
+    """
+    available = get_available_models()
+    target = _ti_gateway_target_provider(available)
+    if target is None:
+        return []
+    gateway_ids = set(get_ti_gateway_models())
+    if not gateway_ids:
+        return []
+    return sorted(
+        f"{target}:{model}"
+        for model in available.get(target, [])
+        if model in gateway_ids
+    )
+
+
+def _ti_gateway_target_provider(available: dict[str, list[str]]) -> str | None:
+    """Return which provider entry should host TI gateway model IDs.
+
+    Args:
+        available: Provider-to-models mapping under construction.
+
+    Returns:
+        `"openai"` when that integration is listed (the verified
+            `base_url` + `default_headers` path), else `"litellm"` when
+            listed, else `None` (nothing installed can target the gateway).
+    """
+    if "openai" in available:
+        return "openai"
+    if "litellm" in available:
+        return "litellm"
+    return None
+
+
+def _merge_ti_gateway_models(
+    available: dict[str, list[str]], config: ModelConfig
+) -> None:
+    """Merge TI gateway model IDs into `available` in place (no-op unless active).
+
+    Args:
+        available: Provider-to-models mapping under construction.
+        config: Loaded model configuration (for `enabled` checks).
+    """
+    gateway_models = get_ti_gateway_models()
+    if not gateway_models:
+        return
+    target = _ti_gateway_target_provider(available)
+    if target is None or not config.is_provider_enabled(target):
+        logger.debug(
+            "TI gateway exposed %d models but neither openai nor litellm "
+            "is available; skipping merge",
+            len(gateway_models),
+        )
+        return
+    available[target] = list(
+        dict.fromkeys([*available.get(target, []), *gateway_models])
+    )
+    logger.debug(
+        "Merged %d TI gateway models under provider '%s'",
+        len(gateway_models),
+        target,
+    )
 
 
 def get_available_models() -> dict[str, list[str]]:
@@ -1648,6 +1756,14 @@ def _discover_available_models(*, apply_allowlist: bool) -> dict[str, list[str]]
                 "daemon may be down or have no pulls",
                 endpoint or OLLAMA_DEFAULT_BASE_URL,
             )
+
+    # In `tijwt` auth mode the provider is a corporate LiteLLM gateway whose
+    # model lineup lives server-side, not in any LangChain profile package.
+    # Probe `GET /v1/models` and merge the IDs under the OpenAI-compatible
+    # provider entry (`openai` preferred, `litellm` fallback) so the switcher
+    # offers exactly what the gateway serves. Cached alongside the rest of
+    # `available`; refresh via `clear_caches()` (e.g. `/reload`).
+    _merge_ti_gateway_models(available, config)
 
     # Mirror the curated `CODEX_MODELS` subset of `openai` models under a
     # dedicated `openai_codex` provider entry so the switcher offers them under
@@ -2629,7 +2745,7 @@ def get_provider_auth_status(provider: str) -> ProviderAuthStatus:
             )
     except ImportError:
         pass
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         from deepagents_code.tijwt import TIJWTError as _TIJWTError
 
         if isinstance(exc, _TIJWTError):

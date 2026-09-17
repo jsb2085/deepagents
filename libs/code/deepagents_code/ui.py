@@ -158,9 +158,7 @@ def show_help() -> None:
     )
     console.print("  -a, --agent NAME           Agent to use")
     console.print("  -M, --model MODEL          Model to use (e.g., gpt-5.5)")
-    console.print(
-        "  --auth-mode MODE           Auth mode: 'api' or 'tijwt'/'kerberos' (Kerberos JWT)"
-    )
+    console.print("  --auth-mode MODE           Auth mode: 'api' or 'tijwt'/'kerberos'")
     console.print(
         "  --model-params JSON        Extra model kwargs (e.g., '{\"temperature\": 0.7}')"  # noqa: E501
     )
@@ -674,6 +672,47 @@ def show_tools_list_help() -> None:
     console.print("[bold]Examples:[/bold]", style=theme.PRIMARY)
     console.print("  dcode tools list")
     console.print("  dcode tools list --json")
+    console.print()
+
+
+def show_models_help() -> None:
+    """Show help information for the `models` subcommand."""
+    console.print()
+    console.print("[bold]Usage:[/bold]", style=theme.PRIMARY)
+    console.print("  dcode models <command> [options]")
+    console.print()
+    console.print("[bold]Commands:[/bold]", style=theme.PRIMARY)
+    console.print("  list              List the models available to the agent")
+    console.print()
+    _print_option_section()
+    console.print()
+    console.print("[bold]Examples:[/bold]", style=theme.PRIMARY)
+    console.print("  dcode models list")
+    console.print("  dcode models list --json")
+    console.print()
+
+
+def show_models_list_help() -> None:
+    """Show help information for the `models list` subcommand."""
+    console.print()
+    console.print("[bold]Usage:[/bold]", style=theme.PRIMARY)
+    console.print("  dcode models list [options]")
+    console.print()
+    console.print(
+        "List the models available to the agent, grouped by provider — the",
+    )
+    console.print(
+        "same lineup the /model switcher offers. In tijwt auth mode the TI",
+    )
+    console.print(
+        "LiteLLM gateway lineup is probed live and called out separately.",
+    )
+    console.print()
+    _print_option_section()
+    console.print()
+    console.print("[bold]Examples:[/bold]", style=theme.PRIMARY)
+    console.print("  dcode models list")
+    console.print("  dcode models list --json")
     console.print()
 
 

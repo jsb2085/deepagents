@@ -8668,9 +8668,14 @@ class DeepAgentsApp(App):
             else:
                 target = await asyncio.to_thread(_tijwt.normalize_auth_mode, arg)
                 if target is None:
-                    raise _tijwt.TIJWTError(
-                        f"Unknown auth mode {arg!r}: use 'api', 'tijwt', or 'kerberos'."
+                    await self._mount_message(UserMessage(command))
+                    await self._mount_message(
+                        AppMessage(
+                            f"Unknown auth mode {arg!r}: "
+                            "use 'api', 'tijwt', or 'kerberos'."
+                        )
                     )
+                    return
             if target == _tijwt.TIJWT_AUTH_MODE:
                 _tijwt.reset_manager()
                 await asyncio.to_thread(_tijwt.get_tijwt_token)

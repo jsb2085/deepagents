@@ -6016,6 +6016,10 @@ def _apply_tijwt_auth_kwargs(provider: str, kwargs: dict[str, Any]) -> dict[str,
 
     Returns:
         Updated kwargs, or the original mapping when `api` mode is active.
+
+    Raises:
+        ModelConfigError: If `tijwt` mode is active but the token cannot be
+            fetched.
     """
     from deepagents_code.model_config import CODEX_PROVIDER, ModelConfigError
 
@@ -6031,7 +6035,7 @@ def _apply_tijwt_auth_kwargs(provider: str, kwargs: dict[str, Any]) -> dict[str,
         token = _tijwt.get_tijwt_token()
         team_id = _tijwt.resolve_team_id()
         gateway_url = _tijwt.resolve_base_url()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         from deepagents_code.tijwt import TIJWTError
 
         if isinstance(exc, TIJWTError):
@@ -6045,10 +6049,7 @@ def _apply_tijwt_auth_kwargs(provider: str, kwargs: dict[str, Any]) -> dict[str,
         if not isinstance(client_kwargs, dict):
             client_kwargs = {}
         headers = client_kwargs.get("headers")
-        if not isinstance(headers, dict):
-            headers = {}
-        else:
-            headers = dict(headers)
+        headers = {} if not isinstance(headers, dict) else dict(headers)
         headers["Authorization"] = f"Bearer {token}"
         client_kwargs = {**client_kwargs, "headers": headers}
         updated["client_kwargs"] = client_kwargs
@@ -6100,8 +6101,7 @@ def _apply_tijwt_insecure_clients(provider: str, kwargs: dict[str, Any]) -> None
         import httpx
     except ImportError:
         logger.warning(
-            "Cannot disable TLS verification for the TI gateway:"
-            " httpx is not installed"
+            "Cannot disable TLS verification for the TI gateway: httpx is not installed"
         )
         return
     # Always warn (not debug): skipping verification weakens connection
@@ -6111,9 +6111,11 @@ def _apply_tijwt_insecure_clients(provider: str, kwargs: dict[str, Any]) -> None
         " (ti_verify_ssl=false). Only use this behind a trusted proxy."
     )
     if kwargs.get("http_client") is None:
-        kwargs["http_client"] = httpx.Client(verify=False)
+        kwargs["http_client"] = httpx.Client(verify=False)  # noqa: S501  # user opt-out
     if kwargs.get("http_async_client") is None:
-        kwargs["http_async_client"] = httpx.AsyncClient(verify=False)
+        kwargs["http_async_client"] = httpx.AsyncClient(
+            verify=False  # noqa: S501  # user opt-out
+        )
 
 
 def _apply_scoped_endpoint(
@@ -6820,15 +6822,15 @@ def create_model(
     # `UnboundLocalError`.
     scoped_environment = _environment_is_scoped()
     stored_credential: str | None = None
-    _tijwt_active = False
+    tijwt_active = False
     if provider:
         from deepagents_code import tijwt as _tijwt_check
 
         try:
-            _tijwt_active = (
+            tijwt_active = (
                 _tijwt_check.resolve_auth_mode() == _tijwt_check.TIJWT_AUTH_MODE
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.debug(
                 "TI JWT auth-mode check failed; using API-key auth", exc_info=True
             )
@@ -6841,10 +6843,10 @@ def create_model(
         # explicit kwarg in `_get_provider_kwargs`, so a stale stored
         # key must neither be bridged onto the env nor override the
         # JWT below.
-        if not scoped_environment and not _tijwt_active:
+        if not scoped_environment and not tijwt_active:
             apply_stored_credentials(provider)
         stored_credential = (
-            None if _tijwt_active else resolve_provider_credential(provider)
+            None if tijwt_active else resolve_provider_credential(provider)
         )
 
     from deepagents_code.model_config import CODEX_PROVIDER
@@ -6855,7 +6857,7 @@ def create_model(
     # because their env-var mapping is not a reliable indicator. `tijwt` mode
     # is excluded because the Kerberos JWT is injected as an explicit kwarg
     # below rather than coming from a provider credential.
-    if provider and provider not in IMPLICIT_AUTH_PROVIDERS and not _tijwt_active:
+    if provider and provider not in IMPLICIT_AUTH_PROVIDERS and not tijwt_active:
         cred_status = has_provider_credentials(provider)
         if cred_status is False:
             from deepagents_code.model_config import MissingCredentialsError
