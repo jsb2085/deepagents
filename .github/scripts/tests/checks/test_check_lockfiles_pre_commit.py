@@ -21,9 +21,9 @@ def _paths(packages: list[Path]) -> list[str]:
 def test_unrelated_paths_skip_talon() -> None:
     """Unrelated multi-package changes select only those packages, never Talon."""
     packages = _paths(
-        _packages_for_paths(["libs/deepagents/deepagents/graph.py", "libs/cli/uv.lock"])
+        _packages_for_paths(["libs/deepagents/deepagents/graph.py", "libs/evals/uv.lock"])
     )
-    assert packages == ["libs/cli", "libs/deepagents"]
+    assert packages == ["libs/deepagents", "libs/evals"]
     assert "libs/talon" not in packages
 
 
@@ -114,7 +114,7 @@ def test_main_prints_actionable_error_on_lock_failure(monkeypatch, capsys) -> No
         assert cwd == REPO_ROOT
         return SimpleNamespace(returncode=1)
 
-    monkeypatch.setattr(check_lockfiles_pre_commit, "_package_dirs", lambda: [package])
+    monkeypatch.setattr(check_lockfiles_pre_commit, "package_dirs", lambda: [package])
     monkeypatch.setattr(check_lockfiles_pre_commit.subprocess, "run", fake_run)
 
     assert main(["libs/evals/pyproject.toml"]) == 1

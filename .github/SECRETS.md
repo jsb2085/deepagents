@@ -46,6 +46,21 @@ This environment is selected by `.github/workflows/openwiki-update.yml`.
 
 Use separate workspace-scoped service keys for tracing and Gateway invocation. The environment should not require reviewers because the workflow runs on a schedule. Restrict deployments to `main`.
 
+### `labeling`
+
+Create this environment for the `label-by-package` job in
+`auto-label-by-package.yml`.
+
+| Secret | Purpose |
+| --- | --- |
+| `GROQ_API_KEY` | Classify issue titles and bodies into topic labels. |
+
+Provision a dedicated Groq inference key for labeling, separate from the evals
+credential, with model and spending limits where supported. Store it only in
+this environment; the issue workflow injects it only into its classification step.
+Do not require reviewers, so automatic labeling can run unattended. Restrict
+deployments to the default branch, which the issue workflow uses.
+
 ### `evals`
 
 This environment is used by standard evals, Harbor evals, unified evals, and clbench.
@@ -146,7 +161,10 @@ organization members: read
 repository contents: write
 issues: write
 pull requests: write
+actions: write
 ```
+
+`actions: write` is required by `release.yml`'s `bump-code-sdk-pin` job to dispatch `bump_code_sdk_pin.yml` after a `deepagents` publish. It was added to the App installation as part of [PR #5298](https://github.com/langchain-ai/deepagents/pull/5298).
 
 The App's actual installed permissions are external configuration and must be verified separately. Workflow-level `permissions` restrict `GITHUB_TOKEN`; they do not restrict a separately minted GitHub App installation token.
 
